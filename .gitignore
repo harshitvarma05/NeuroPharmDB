@@ -29,8 +29,7 @@ wheels/
 *.sqlite3
 data/
 
-# Streamlit
-.streamlit/
+
 
 # IDE
 .vscode/

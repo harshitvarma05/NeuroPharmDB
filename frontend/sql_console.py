@@ -6,7 +6,7 @@ def show_sql_console():
     st.markdown(
         """
         <div class="apple-card">
-          <div class="apple-title">🧾 SQL Console</div>
+          <div class="apple-title">SQL Console</div>
           <div class="apple-subtitle">Run SQL queries manually (SELECT recommended)</div>
         </div>
         """,

@@ -257,7 +257,7 @@ def topbar(app_name: str, user_id: str):
                 st.caption("No notifications yet.")
             else:
                 for a in alerts:
-                    status = "! Unread" if a["status"] == "unread" else "⬛ Read"
+                    status = "! Unread" if a["status"] == "unread" else "Read"
                     st.write(f"{status} — {a['message']}")
                     st.caption(a["created_at"])
                 if st.button("Mark all as read", key="topbar_mark_all_read"):

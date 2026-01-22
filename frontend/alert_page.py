@@ -50,7 +50,7 @@ def show_alert_page():
             st.markdown(
                 f"""
                 <div class="apple-card">
-                  <div class="apple-title">🧾 Explanation</div>
+                  <div class="apple-title">Explanation</div>
                   <div class="apple-subtitle">Reasoning for this alert</div>
                 </div>
                 """,

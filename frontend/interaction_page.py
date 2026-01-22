@@ -14,7 +14,7 @@ def show_interaction_page():
     st.markdown(
         """
         <div class="apple-card">
-          <div class="apple-title">⚗️ Drug Interactions</div>
+          <div class="apple-title">Drug Interactions</div>
           <div class="apple-subtitle">Add + browse interactions (alerts auto-trigger at severity ≥ 7)</div>
         </div>
         """,
@@ -32,7 +32,7 @@ def show_interaction_page():
     effect_labels = ["—"] + [f"{e['effect_name']} ({e['effect_id']})" for e in effects]
     effect_map = {f"{e['effect_name']} ({e['effect_id']})": e["effect_id"] for e in effects}
 
-    st.subheader("➕ Add Interaction")
+    st.subheader("Add Interaction")
     with st.form("add_interaction_form", clear_on_submit=True):
         interaction_id = st.text_input("Interaction ID * (e.g., I001)")
         d1 = st.selectbox("Drug 1 *", drug_labels)
@@ -58,7 +58,7 @@ def show_interaction_page():
                 st.rerun()
 
     st.markdown("---")
-    st.subheader("🔥 Top Risk Combinations")
+    st.subheader("Top Risk Combinations")
     try:
         top = top_risk_combinations(limit=10)
         if top:
@@ -69,7 +69,7 @@ def show_interaction_page():
         st.error(f"Failed to load top risk combos: {e}")
 
     st.markdown("---")
-    st.subheader("📄 All Interactions (with risk)")
+    st.subheader("All Interactions (with risk)")
     inters = list_interactions()
     if inters:
         df = pd.DataFrame(inters)

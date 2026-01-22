@@ -1,8 +1,7 @@
 import streamlit as st
-
+from frontend.sql_console import show_sql_console
 from database.db_connection import init_db, authenticate_user
 from frontend.layout import apply_base_style, login_screen, topbar
-
 from frontend.home import show_home
 from frontend.drug_page import show_drug_page
 from frontend.interaction_page import show_interaction_page
@@ -54,6 +53,7 @@ PAGES = {
     "Timeline & History": show_timeline_page,
     "Alerts": show_alert_page,
     "Users": show_user_page,
+    "SQL Console": show_sql_console,
 }
 
 with st.sidebar:

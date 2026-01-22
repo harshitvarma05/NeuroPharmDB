@@ -16,7 +16,7 @@ def show_timeline_page():
     st.markdown(
         """
         <div class="apple-card">
-          <div class="apple-title">📅 Timeline & History</div>
+          <div class="apple-title">Timeline & History</div>
           <div class="apple-subtitle">Medication history for logged-in user</div>
         </div>
         """,
@@ -35,7 +35,7 @@ def show_timeline_page():
     drug_labels = ["—"] + [f"{d['name']} ({d['drug_id']})" for d in drugs]
     drug_map = {f"{d['name']} ({d['drug_id']})": d["drug_id"] for d in drugs}
 
-    st.subheader("➕ Add to History")
+    st.subheader("Add to History")
     with st.form("add_timeline", clear_on_submit=True):
         timeline_id = st.text_input("Timeline ID * (e.g., TL001)")
         drug_label = st.selectbox("Drug *", drug_labels)
@@ -63,7 +63,7 @@ def show_timeline_page():
                 # trigger alerts for high-risk interactions
                 created = check_new_drug_and_alert(user_id, new_drug_id, min_severity=7.0)
                 if created > 0:
-                    st.warning(f"{created} alert(s) generated. Check Alerts 🔔")
+                    st.warning(f"{created} alert(s) generated. Check Alerts")
 
                 # show interactions found with current meds (informational)
                 pairs = []
@@ -95,7 +95,7 @@ def show_timeline_page():
                 st.rerun()
 
     st.markdown("---")
-    st.subheader("📄 Your History")
+    st.subheader("Your History")
     history = list_timeline_for_user(user_id)
     if history:
         st.dataframe(pd.DataFrame(history), use_container_width=True, hide_index=True)

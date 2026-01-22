@@ -6,7 +6,7 @@ def show_user_page():
     st.markdown(
         """
         <div class="apple-card">
-          <div class="apple-title">👤 Users</div>
+          <div class="apple-title">Users</div>
           <div class="apple-subtitle">Manage users (user_id + email login)</div>
         </div>
         """,
@@ -18,7 +18,7 @@ def show_user_page():
 
     col1, col2 = st.columns([1, 2])
     with col1:
-        st.subheader("➕ Create User")
+        st.subheader("Create User")
         with st.form("add_user", clear_on_submit=True):
             user_id = st.text_input("User ID * (e.g., U001)")
             name = st.text_input("Name *")

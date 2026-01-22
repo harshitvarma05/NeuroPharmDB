@@ -6,7 +6,7 @@ def show_neuro_page():
     st.markdown(
         """
         <div class="apple-card">
-          <div class="apple-title">🧠 Neuro Effects</div>
+          <div class="apple-title">Neuro Effects</div>
           <div class="apple-subtitle">Manage NeuroEffect table</div>
         </div>
         """,
@@ -23,7 +23,7 @@ def show_neuro_page():
         st.info("No neuro effects yet.")
 
     st.markdown("---")
-    with st.expander("➕ Add Neuro Effect"):
+    with st.expander("Add Neuro Effect"):
         with st.form("add_effect", clear_on_submit=True):
             effect_id = st.text_input("Effect ID * (e.g., E001)")
             effect_name = st.text_input("Effect name *")

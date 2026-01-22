@@ -6,7 +6,7 @@ def show_drug_page():
     st.markdown(
         """
         <div class="apple-card">
-          <div class="apple-title">💊 Drug Database</div>
+          <div class="apple-title">Drug Database</div>
           <div class="apple-subtitle">Manage drugs (Drug table)</div>
         </div>
         """,
@@ -44,7 +44,7 @@ def show_drug_page():
 
     st.markdown("---")
 
-    with st.expander("➕ Add Drug"):
+    with st.expander("Add Drug"):
         with st.form("add_drug_form", clear_on_submit=True):
             drug_id = st.text_input("Drug ID * (e.g., D001)")
             name = st.text_input("Drug Name *")

@@ -7,7 +7,7 @@ def show_alert_page():
     st.markdown(
         """
         <div class="apple-card">
-          <div class="apple-title">🔔 Alerts</div>
+          <div class="apple-title">Alerts</div>
           <div class="apple-subtitle">Notifications created automatically for high severity interactions</div>
         </div>
         """,

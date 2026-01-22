@@ -15,11 +15,11 @@ def show_home():
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.markdown('<div class="apple-card"><b>💊 Drug Database</b><div class="apple-subtitle">Browse drugs, classes, mechanisms</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="apple-card"><b>Drug Database</b><div class="apple-subtitle">Browse drugs, classes, mechanisms</div></div>', unsafe_allow_html=True)
     with c2:
-        st.markdown('<div class="apple-card"><b>⚗️ Interaction Checker</b><div class="apple-subtitle">Check drug pairs and severity</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="apple-card"><b>Interaction Checker</b><div class="apple-subtitle">Check drug pairs and severity</div></div>', unsafe_allow_html=True)
     with c3:
-        st.markdown('<div class="apple-card"><b>📅 Timeline & History</b><div class="apple-subtitle">Track medicines taken over time</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="apple-card"><b>Timeline & History</b><div class="apple-subtitle">Track medicines taken over time</div></div>', unsafe_allow_html=True)
 
     st.write("")
 

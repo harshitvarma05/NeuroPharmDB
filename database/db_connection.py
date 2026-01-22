@@ -532,3 +532,41 @@ def get_alert_explanation(alert_id: str):
         }
     finally:
         db.close()
+
+def run_sql_query(sql: str, allow_write: bool = False):
+    """
+    Runs raw SQL safely.
+    - By default, allows only SELECT.
+    - If allow_write=True, UPDATE/DELETE/DDL are allowed.
+    Returns dict: {type, rows?, rowcount?}
+    """
+    if not sql or not sql.strip():
+        raise ValueError("Empty SQL query")
+
+    q = sql.strip().strip(";")
+    q_lower = q.lower()
+
+    is_select = q_lower.startswith("select") or q_lower.startswith("with")
+
+    if not is_select and not allow_write:
+        raise PermissionError("Only SELECT queries are allowed unless 'Allow write' is enabled.")
+
+    db = SessionLocal()
+    try:
+        # Use the SQLAlchemy session connection
+        conn = db.connection()
+        res = conn.execute(text(q))
+
+        if is_select:
+            cols = res.keys()
+            rows = [dict(zip(cols, r)) for r in res.fetchall()]
+            return {"type": "select", "rows": rows}
+        else:
+            db.commit()
+            return {"type": "write", "rowcount": res.rowcount if res.rowcount is not None else 0}
+
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()

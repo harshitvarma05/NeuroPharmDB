@@ -65,7 +65,7 @@ def show_drug_page():
                     st.success("Drug added.")
                     st.rerun()
 
-    with st.expander("🗑️ Delete Drug"):
+    with st.expander("Delete Drug"):
         did = st.text_input("Drug ID to delete")
         if st.button("Delete", type="secondary"):
             delete_drug(did.strip())

@@ -3,10 +3,16 @@ from database.db_connection import init_db, create_user, create_drug, create_neu
 def main():
     init_db()
 
-    # --- Sample user for login ---
-    # login with: U001 + harshit@example.com
+    # --- Sample accounts for login ---
+    # Patient login: U001 + harshit@example.com
+    # Doctor/Admin login: DOC001 + doctor@neuropharmdb.com
     try:
-        create_user("U001", "Harshit", "harshit@example.com", age=20, medical_history="None")
+        create_user("U001", "Harshit", "harshit@example.com", age=20, medical_history="None", role="patient")
+    except Exception:
+        pass
+
+    try:
+        create_user("DOC001", "Doctor Admin", "doctor@neuropharmdb.com", role="admin")
     except Exception:
         pass
 
@@ -15,6 +21,7 @@ def main():
         ("D001", "Sertraline", "SSRI", "Increases serotonin in synapse"),
         ("D002", "Clonazepam", "Benzodiazepine", "GABA-A receptor potentiation"),
         ("D003", "Modafinil", "Wakefulness agent", "Dopamine transporter inhibition"),
+        ("D008", "Diazepam", "Benzodiazepine", "GABA-A receptor potentiation"),
     ]:
         try:
             create_drug(*d)
@@ -27,6 +34,7 @@ def main():
         ("E010", "Sedation", "Sedation", "High"),
         ("E011", "Weight Gain", "Metabolic", "Medium"),
         ("E012", "Seizures", "Neurological", "High"),
+        ("E013", "Dizziness", "Neurological", "Medium"),
     ]
     for e in effects:
         try:
@@ -52,6 +60,8 @@ def main():
     interactions = [
         # Sedation (high)
         ("I001", "D001", "D002", "E010", 8.5, "Additive CNS depression / sedation"),
+        # Dizziness (medium) example with diazepam
+        ("I004", "D001", "D008", "E013", 5.8, "Possible additive CNS effects (dizziness/drowsiness)"),
         # Seizures (high)
         ("I002", "D004", "D005", "E012", 9.2, "Both may lower seizure threshold; serotonergic/opioid overlap"),
         # Weight gain (high-ish)
@@ -62,7 +72,7 @@ def main():
             add_interaction(*it)
         except Exception:
             pass
-
+    
     print("Initialized NeuroPharmDB. Run: streamlit run app.py")
 
 if __name__ == "__main__":

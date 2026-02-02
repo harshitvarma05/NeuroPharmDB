@@ -1,9 +1,9 @@
 import os
-from datetime import datetime
-from sqlalchemy import create_engine, text, or_
-from sqlalchemy.orm import sessionmaker
 import uuid
-from sqlalchemy import or_, and_
+from datetime import datetime
+
+from sqlalchemy import create_engine, text, or_, and_
+from sqlalchemy.orm import sessionmaker
 
 from database.models import Base, User, Drug, NeuroEffect, DrugInteraction, DrugTimeline, AlertLog
 
@@ -28,10 +28,20 @@ def init_db():
 def authenticate_user(user_id: str, email: str):
     db = SessionLocal()
     try:
-        u = db.query(User).filter(User.user_id == user_id, User.email == email).first()
-        if not u:
+        user = db.query(User).filter(
+            User.user_id == user_id,
+            User.email == email
+        ).first()
+
+        if not user:
             return None
-        return {"user_id": u.user_id, "name": u.name, "email": u.email}
+
+        return {
+            "user_id": user.user_id,
+            "name": user.name,
+            "email": user.email,
+            "role": user.role
+        }
     finally:
         db.close()
 
@@ -39,10 +49,17 @@ def authenticate_user(user_id: str, email: str):
 # -------------------------
 # USER CRUD
 # -------------------------
-def create_user(user_id: str, name: str, email: str, age=None, medical_history=None):
+def create_user(user_id, name, email, age, medical_history, role="patient"):
     db = SessionLocal()
     try:
-        u = User(user_id=user_id, name=name, email=email, age=age, medical_history=medical_history)
+        u = User(
+            user_id=user_id,
+            name=name,
+            email=email,
+            age=age,
+            medical_history=medical_history,
+            role=role
+        )
         db.add(u)
         db.commit()
         return True
@@ -52,13 +69,26 @@ def create_user(user_id: str, name: str, email: str, age=None, medical_history=N
     finally:
         db.close()
 
+
 def list_users():
     db = SessionLocal()
     try:
         rows = db.query(User).order_by(User.user_id).all()
-        return [{"user_id": r.user_id, "name": r.name, "email": r.email, "age": r.age, "medical_history": r.medical_history} for r in rows]
+        return [{
+            "user_id": r.user_id,
+            "name": r.name,
+            "email": r.email,
+            "role": getattr(r, "role", "patient"),
+            "age": r.age,
+            "medical_history": r.medical_history,
+        } for r in rows]
     finally:
         db.close()
+
+
+def create_user_with_role(user_id: str, name: str, email: str, role: str = "patient", age=None, medical_history=None):
+    """Backward-compatible alias."""
+    return create_user(user_id=user_id, name=name, email=email, role=role, age=age, medical_history=medical_history)
 
 
 # -------------------------
@@ -400,9 +430,6 @@ def check_new_drug_and_alert(user_id: str, new_drug_id: str, min_severity: float
         if inter["mechanism"]:
             msg += f" Mechanism: {inter['mechanism']}"
 
-        if inter["mechanism"]:
-            msg += f"\nMechanism: {inter['mechanism']}"
-
         create_alert_for_user(
             user_id=user_id,
             interaction_id=inter["interaction_id"],
@@ -413,6 +440,22 @@ def check_new_drug_and_alert(user_id: str, new_drug_id: str, min_severity: float
         alerts_created += 1
 
     return alerts_created
+
+
+def check_all_pairs_and_alert(user_id: str, min_severity: float = 7.0):
+    """
+    Patient feature: If user has multiple active drugs, check every pair and create alerts.
+    Useful after bulk timeline updates.
+    """
+    drugs = get_active_drugs_for_user(user_id)
+    high_pairs = 0
+    for i in range(len(drugs)):
+        for j in range(i + 1, len(drugs)):
+            result = evaluate_pair_and_alert(user_id, drugs[i], drugs[j], threshold=min_severity)
+            if result.get("status") == "high":
+                high_pairs += 1
+    # returns number of *high-risk pairs detected* (alerts are de-duplicated inside evaluate_pair_and_alert)
+    return high_pairs
 # =========================
 # NOTIFICATIONS API (used by layout + alerts page)
 # =========================
@@ -570,3 +613,73 @@ def run_sql_query(sql: str, allow_write: bool = False):
         raise
     finally:
         db.close()
+
+def check_interaction_pair(drug_a: str, drug_b: str):
+    """
+    Returns interaction + effect + severity if exists, else None
+    """
+    db = SessionLocal()
+    try:
+        inter = db.query(DrugInteraction).filter(
+            or_(
+                and_(DrugInteraction.drug1_id == drug_a, DrugInteraction.drug2_id == drug_b),
+                and_(DrugInteraction.drug1_id == drug_b, DrugInteraction.drug2_id == drug_a),
+            )
+        ).first()
+
+        if not inter:
+            return None
+
+        eff = db.query(NeuroEffect).filter(NeuroEffect.effect_id == inter.effect_id).first()
+
+        return {
+            "interaction_id": inter.interaction_id,
+            "drug1_id": inter.drug1_id,
+            "drug2_id": inter.drug2_id,
+            "effect_id": inter.effect_id,
+            "effect_name": eff.effect_name if eff else inter.effect_id,
+            "effect_category": eff.category if eff else None,
+            "severity_score": float(inter.severity_score),
+            "mechanism": inter.mechanism
+        }
+    finally:
+        db.close()
+
+def evaluate_pair_and_alert(user_id: str, drug_a: str, drug_b: str, threshold: float = 7.0):
+    inter = check_interaction_pair(drug_a, drug_b)
+    if not inter:
+        return {"status": "safe", "interaction": None}
+
+    # Decide risk
+    sev = inter["severity_score"]
+    risk = "high" if sev >= threshold else ("medium" if sev >= 4 else "low")
+
+    if risk == "high":
+        msg = (
+            f"⚠️ High-risk interaction: {drug_a} + {drug_b} → {inter['effect_name']} "
+            f"(Severity {sev}/10)."
+        )
+        if inter.get("mechanism"):
+            msg += f" Mechanism: {inter['mechanism']}"
+
+        # de-dupe unread alerts for same interaction
+        db = SessionLocal()
+        try:
+            dup = db.query(AlertLog).filter(
+                AlertLog.user_id == user_id,
+                AlertLog.interaction_id == inter["interaction_id"],
+                AlertLog.status == "unread",
+            ).first()
+        finally:
+            db.close()
+
+        if not dup:
+            create_alert_for_user(
+                user_id=user_id,
+                interaction_id=inter["interaction_id"],
+                drug1_id=drug_a,
+                drug2_id=drug_b,
+                message=msg
+            )
+
+    return {"status": risk, "interaction": inter}

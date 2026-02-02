@@ -19,27 +19,34 @@ def show_user_page():
     col1, col2 = st.columns([1, 2])
     with col1:
         st.subheader("Create User")
-        with st.form("add_user", clear_on_submit=True):
-            user_id = st.text_input("User ID * (e.g., U001)")
-            name = st.text_input("Name *")
-            email = st.text_input("Email *")
-            age = st.number_input("Age (optional)", min_value=0, max_value=120, value=0)
-            medical_history = st.text_area("Medical history (optional)")
-            submitted = st.form_submit_button("Create", type="primary")
 
-            if submitted:
-                if not user_id or not name or not email:
-                    st.error("user_id, name, email required.")
-                else:
-                    create_user(
-                        user_id=user_id.strip(),
-                        name=name.strip(),
-                        email=email.strip(),
-                        age=int(age) if age and int(age) > 0 else None,
-                        medical_history=medical_history.strip() if medical_history else None
-                    )
-                    st.success("User created.")
-                    st.rerun()
+        user_id = st.text_input("User ID")
+        name = st.text_input("Name")
+        email = st.text_input("Email")
+
+        role = st.selectbox(
+            "Role",
+            ["patient", "admin"],
+            help="Admin/Doctor can manage drugs and interactions. Patient has limited access."
+        )
+
+        age = st.number_input("Age", min_value=0, step=1)
+        medical_history = st.text_area("Medical History")
+
+        if st.button("Create User", type="primary"):
+            if not user_id or not email:
+                st.error("User ID and Email are required.")
+            else:
+                create_user(
+                    user_id=user_id,
+                    name=name,
+                    email=email,
+                    age=age,
+                    medical_history=medical_history,
+                    role=role
+                )
+                st.success(f"User {user_id} created with role '{role}'.")
+                st.rerun()
 
     with col2:
         st.subheader("All Users")

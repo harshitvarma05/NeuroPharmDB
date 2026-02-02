@@ -15,6 +15,8 @@ class User(Base):
     medical_history = Column(String(500), nullable=True)
 
     timelines = relationship("DrugTimeline", back_populates="user", cascade="all, delete-orphan")
+    role = Column(String(20), nullable=False, default="patient")  # "admin" or "patient"
+
 
 
 # --- Drug(drug_id, name, class, mechanism) ---

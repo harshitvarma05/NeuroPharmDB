@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Text
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -88,3 +88,19 @@ class AlertLog(Base):
     message = Column(String(500), nullable=False)
     status = Column(String(20), default="unread")  # unread/read
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class AIInteractionSuggestion(Base):
+    __tablename__ = "ai_interaction_suggestion"
+
+    suggestion_id = Column(Integer, primary_key=True, autoincrement=True)
+    drug1_id = Column(String(50), nullable=False)
+    drug2_id = Column(String(50), nullable=False)
+
+    predicted_effect = Column(String(255), nullable=False)
+    predicted_severity = Column(Float, nullable=True)
+
+    explanation = Column(Text, nullable=True)
+
+    status = Column(String(20), nullable=False, default="pending")  # pending/approved/rejected
+    created_at = Column(DateTime, default=datetime.utcnow)
+

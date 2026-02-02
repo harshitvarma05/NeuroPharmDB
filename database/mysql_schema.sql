@@ -76,6 +76,17 @@ CREATE TABLE IF NOT EXISTS user_details (
     drug_dosage VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS ai_interaction_suggestion (
+    suggestion_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    drug1_id VARCHAR(20) NOT NULL,
+    drug2_id VARCHAR(20) NOT NULL,
+    predicted_effect VARCHAR(100) NOT NULL,
+    predicted_severity FLOAT,
+    explanation TEXT,
+    status VARCHAR(20) DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 
 CREATE INDEX idx_drug_name ON drugs(generic_name);
 CREATE INDEX idx_condition_name ON neurological_conditions(name);

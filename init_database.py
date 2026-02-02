@@ -12,9 +12,16 @@ def main():
         pass
 
     try:
-        create_user("DOC001", "Doctor Admin", "doctor@neuropharmdb.com", role="admin")
-    except Exception:
-        pass
+        create_user(
+            "DOC001",
+            "Doctor Admin",
+            "doctor@neuropharmdb.com",
+            age=None,
+            medical_history=None,
+            role="admin"
+        )
+    except Exception as e:
+        print("Doctor creation error:", e)
 
     # --- Sample drugs ---
     for d in [

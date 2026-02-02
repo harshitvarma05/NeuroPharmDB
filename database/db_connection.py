@@ -5,7 +5,8 @@ from datetime import datetime
 from sqlalchemy import create_engine, text, or_, and_
 from sqlalchemy.orm import sessionmaker
 
-from database.models import Base, User, Drug, NeuroEffect, DrugInteraction, DrugTimeline, AlertLog
+from database.models import Base, User, Drug, NeuroEffect, DrugInteraction, DrugTimeline, AlertLog, AIInteractionSuggestion
+
 
 
 # --- DB URL: use env if set, else SQLite file in /data ---
@@ -683,3 +684,71 @@ def evaluate_pair_and_alert(user_id: str, drug_a: str, drug_b: str, threshold: f
             )
 
     return {"status": risk, "interaction": inter}
+
+def ai_predict_effect(drug1_id, drug2_id):
+    """
+    AI-assisted (simulated) neurological effect prediction.
+    NOT authoritative.
+    """
+    return {
+        "effect": "Dizziness",
+        "severity": 6.3,
+        "explanation": "Both drugs may have additive central nervous system depressant effects."
+    }
+
+def store_ai_suggestion(drug1_id, drug2_id, effect, severity, explanation):
+    db = SessionLocal()
+    try:
+        s = AIInteractionSuggestion(
+            drug1_id=drug1_id,
+            drug2_id=drug2_id,
+            predicted_effect=effect,
+            predicted_severity=severity,
+            explanation=explanation
+        )
+        db.add(s)
+        db.commit()
+    finally:
+        db.close()
+
+def get_pending_ai_suggestions():
+    db = SessionLocal()
+    try:
+        return db.query(AIInteractionSuggestion).filter(
+            AIInteractionSuggestion.status == "pending"
+        ).all()
+    finally:
+        db.close()
+
+def approve_ai_suggestion(suggestion_id):
+    db = SessionLocal()
+    try:
+        s = db.query(AIInteractionSuggestion).get(suggestion_id)
+        if not s:
+            return False
+
+        inter = DrugInteraction(
+            interaction_id=f"AI_{s.suggestion_id}",
+            drug1_id=s.drug1_id,
+            drug2_id=s.drug2_id,
+            effect_id=s.predicted_effect,
+            severity_score=s.predicted_severity,
+            mechanism=s.explanation
+        )
+
+        s.status = "approved"
+        db.add(inter)
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+def reject_ai_suggestion(suggestion_id):
+    db = SessionLocal()
+    try:
+        s = db.query(AIInteractionSuggestion).get(suggestion_id)
+        if s:
+            s.status = "rejected"
+            db.commit()
+    finally:
+        db.close()

@@ -8,6 +8,9 @@ from database.db_connection import (
     add_interaction,
     list_interactions,
     top_risk_combinations,
+    get_pending_ai_suggestions,
+    approve_ai_suggestion,
+    reject_ai_suggestion
 )
 
 def show_interaction_page():
@@ -92,3 +95,27 @@ def show_interaction_page():
         st.dataframe(pd.DataFrame(inters), use_container_width=True, hide_index=True)
     else:
         st.info("No interactions yet.")
+    st.subheader("🧠 AI Interaction Suggestions (Doctor Review)")
+
+    pending = get_pending_ai_suggestions()
+
+    if not pending:
+        st.info("No pending AI suggestions.")
+    else:
+        for s in pending:
+            with st.expander(f"{s.drug1_id} + {s.drug2_id} → {s.predicted_effect}"):
+                st.write(f"Severity: {s.predicted_severity}")
+                st.write(f"Explanation: {s.explanation}")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("Approve", key=f"approve_{s.suggestion_id}"):
+                        approve_ai_suggestion(s.suggestion_id)
+                        st.success("Approved and added to interaction database.")
+                        st.rerun()
+
+                with col2:
+                    if st.button("Reject", key=f"reject_{s.suggestion_id}"):
+                        reject_ai_suggestion(s.suggestion_id)
+                        st.warning("Suggestion rejected.")
+                        st.rerun()

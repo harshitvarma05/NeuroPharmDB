@@ -38,7 +38,14 @@ def show_user_page():
                 st.error("User ID, Name, Email are required.")
             else:
                 # create_user signature in your backend: (user_id, name, email, age, medical_history, role="patient")
-                dbc.create_user(user_id, name, email, age, medical_history, role=role)
+                dbc.create_user(
+                    user_id=user_id,
+                    name=name,
+                    email=email,
+                    role=role,
+                    age=age,
+                    medical_history=medical_history
+                )
                 st.success(f"Saved {user_id} as {role}.")
                 st.rerun()
 

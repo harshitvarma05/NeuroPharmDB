@@ -24,7 +24,7 @@ def show_timeline_page():
     )
     st.write("")
 
-    user_id = st.session_state.get("user_id")
+    user_id = st.session_state.user_id
     if not user_id:
         st.error("Not logged in.")
         return

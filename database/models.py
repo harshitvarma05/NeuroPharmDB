@@ -86,3 +86,4 @@ class AIInteractionSuggestion(Base):
     doctor_id = Column(String(20), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    target_doctor_id = Column(String(20), ForeignKey("user.user_id"), nullable=True)

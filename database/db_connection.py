@@ -412,28 +412,39 @@ def top_risk_combinations(limit: int = 10):
 # -------------------------
 # TIMELINE / HISTORY
 # -------------------------
-def add_timeline_entry(timeline_id: str, user_id: str, drug_id: str, dosage: str = None,
-                       frequency: str = None, start_date: str = None, end_date: str = None, time_of_day: str = None):
+def add_timeline_entry(**fields):
+    """
+    Insert a DrugTimeline row safely even if some optional columns (like time_of_day)
+    do NOT exist in the SQLAlchemy model.
+    Frontend can pass extra fields; we ignore those that aren't in the model.
+    """
     db = SessionLocal()
     try:
-        t = DrugTimeline(
-            timeline_id=timeline_id,
-            user_id=user_id,
-            drug_id=drug_id,
-            dosage=dosage,
-            frequency=frequency,
-            start_date=start_date,
-            end_date=end_date,
-            time_of_day=time_of_day,
-        )
+        # Required fields check (these must exist in your table/model)
+        required = ["timeline_id", "user_id", "drug_id"]
+        for r in required:
+            if r not in fields or fields[r] in (None, ""):
+                raise ValueError(f"Missing required field: {r}")
+
+        t = DrugTimeline()
+
+        # Only set attributes that exist on the model instance
+        for k, v in fields.items():
+            if v is None:
+                continue
+            if hasattr(t, k):
+                setattr(t, k, v)
+
         db.add(t)
         db.commit()
         return True
+
     except Exception:
         db.rollback()
         raise
     finally:
         db.close()
+
 
 def list_timeline_for_user(user_id: str):
     db = SessionLocal()
@@ -935,19 +946,9 @@ def ai_predict_effect(drug_a_id: str, drug_b_id: str):
     }
 
 
-def store_ai_suggestion(user_id, drug1_id, drug2_id, predicted_effect, severity_score, explanation):
+def store_ai_suggestion(user_id, drug1_id, drug2_id, predicted_effect, severity_score, explanation, target_doctor_id=None):
     db = SessionLocal()
     try:
-        existing = db.query(AIInteractionSuggestion).filter(
-            AIInteractionSuggestion.user_id == user_id,
-            AIInteractionSuggestion.drug1_id == drug1_id,
-            AIInteractionSuggestion.drug2_id == drug2_id,
-            AIInteractionSuggestion.predicted_effect == predicted_effect,
-            AIInteractionSuggestion.status == "PENDING"
-        ).first()
-        if existing:
-            return existing.suggestion_id
-
         s = AIInteractionSuggestion(
             user_id=user_id,
             drug1_id=drug1_id,
@@ -955,23 +956,39 @@ def store_ai_suggestion(user_id, drug1_id, drug2_id, predicted_effect, severity_
             predicted_effect=predicted_effect,
             severity_score=float(severity_score),
             explanation=explanation,
-            status="PENDING"
+            status="PENDING",
         )
+        if hasattr(s, "target_doctor_id"):
+            s.target_doctor_id = target_doctor_id
+
         db.add(s)
         db.commit()
         db.refresh(s)
+
+        # Notify the selected doctor (doctor sees it in Alerts)
+        if target_doctor_id:
+            create_alert_for_user(
+                user_id=target_doctor_id,
+                interaction_id=f"AI-{s.suggestion_id}",
+                message=f"New AI suggestion pending review from patient {user_id}."
+            )
+
         return s.suggestion_id
     finally:
         db.close()
 
 
-def get_pending_ai_suggestions():
+
+def get_pending_ai_suggestions(doctor_id: str | None = None):
     db = SessionLocal()
     try:
-        rows = db.query(AIInteractionSuggestion).filter(
-            AIInteractionSuggestion.status == "PENDING"
-        ).order_by(AIInteractionSuggestion.created_at.desc()).all()
+        q = db.query(AIInteractionSuggestion).filter(AIInteractionSuggestion.status == "PENDING")
 
+        # If table has target_doctor_id, filter for doctor users
+        if doctor_id and hasattr(AIInteractionSuggestion, "target_doctor_id"):
+            q = q.filter(AIInteractionSuggestion.target_doctor_id == doctor_id)
+
+        rows = q.order_by(AIInteractionSuggestion.created_at.desc()).all()
         return [{
             "suggestion_id": r.suggestion_id,
             "user_id": r.user_id,
@@ -980,10 +997,13 @@ def get_pending_ai_suggestions():
             "predicted_effect": r.predicted_effect,
             "severity_score": float(r.severity_score),
             "explanation": r.explanation,
+            "status": r.status,
+            "target_doctor_id": getattr(r, "target_doctor_id", None),
             "created_at": r.created_at,
         } for r in rows]
     finally:
         db.close()
+
 
 
 def approve_ai_suggestion(*args, **kwargs):
@@ -1036,3 +1056,53 @@ def reject_ai_suggestion(*args, **kwargs):
     if "approved" not in kwargs:
         kwargs["approved"] = False
     return approve_ai_suggestion(*args, **kwargs)
+
+def add_drug_to_timeline(user_id: str, drug_id: str, dosage: str = "", frequency: str = "", start_date: str = ""):
+    db = SessionLocal()
+    try:
+        t = DrugTimeline(
+            timeline_id=f"T{uuid.uuid4().hex[:8].upper()}",
+            user_id=user_id,
+            drug_id=drug_id,
+            dosage=dosage,
+            frequency=frequency,
+            start_date=start_date,
+        )
+        db.add(t)
+        db.commit()
+        return True
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def list_timeline_for_user(user_id: str):
+    db = SessionLocal()
+    try:
+        q = db.query(DrugTimeline).filter(DrugTimeline.user_id == user_id)
+        rows = q.all()
+        return [{
+            "timeline_id": getattr(r, "timeline_id", None),
+            "user_id": getattr(r, "user_id", None),
+            "drug_id": getattr(r, "drug_id", None),
+            "dosage": getattr(r, "dosage", None),
+            "frequency": getattr(r, "frequency", None),
+            "start_date": getattr(r, "start_date", None),
+        } for r in rows]
+    finally:
+        db.close()
+
+def list_doctors():
+    db = SessionLocal()
+    try:
+        rows = db.query(User).filter(User.role.in_(["doctor", "admin"])).all()
+        return [{
+            "user_id": getattr(r, "user_id", None),
+            "name": getattr(r, "name", None),
+            "email": getattr(r, "email", None),
+            "role": getattr(r, "role", None),
+        } for r in rows]
+    finally:
+        db.close()

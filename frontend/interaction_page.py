@@ -183,3 +183,4 @@ def _doctor_ai_review_panel(doctor_id: str):
                         st.rerun()
                     else:
                         st.warning("Could not reject (already processed).")
+

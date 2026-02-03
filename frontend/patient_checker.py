@@ -9,6 +9,10 @@ def _drug_label(d: dict) -> str:
     nm = d.get("name") or ""
     return f"{nm} ({did})" if nm else did
 
+doctors = dbc.list_doctors()
+doc_map = {f"{d['name']} ({d['user_id']})": d["user_id"] for d in doctors}
+doc_label = st.selectbox("Send suggestion to doctor", options=list(doc_map.keys())) if doctors else None
+target_doctor_id = doc_map.get(doc_label) if doc_label else None
 
 def show_patient_checker():
     """Patient tool: select 2 drugs and check known interactions, plus AI suggestion (pending doctor review)."""
@@ -102,13 +106,15 @@ def show_patient_checker():
         try:
             ai = dbc.ai_predict_effect(drug_a, drug_b)
             sid = dbc.store_ai_suggestion(
-                user_id,
-                drug_a,
-                drug_b,
-                ai["predicted_effect"],
-                ai["severity_score"],
-                ai.get("explanation", ""),
+                user_id=user_id,
+                drug1_id=drug_a,
+                drug2_id=drug_b,
+                predicted_effect=ai["predicted_effect"],
+                severity_score=ai["severity_score"],
+                explanation=ai["explanation"],
+                target_doctor_id=target_doctor_id
             )
+
 
             st.success(f"AI suggestion stored as PENDING for doctor review (Suggestion #{sid}).")
             st.markdown(severity_badge(ai["severity_score"]), unsafe_allow_html=True)

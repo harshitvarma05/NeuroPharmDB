@@ -57,6 +57,20 @@ def show_patient_checker():
         return
 
     st.divider()
+    doctors = dbc.list_doctors() if hasattr(dbc, "list_doctors") else []
+    doctor_label_to_id = {
+        f"{d['name']} ({d['user_id']})": d["user_id"] for d in doctors if d.get("user_id")
+    }
+
+    selected_doctor_id = None
+    if doctors:
+        selected_label = st.selectbox(
+            "Choose doctor for review",
+            options=list(doctor_label_to_id.keys()),
+        )
+        selected_doctor_id = doctor_label_to_id.get(selected_label)
+    else:
+        st.info("No doctors found in database. Please create a doctor/admin user.")
 
     # 1) Known interaction (database)
     st.subheader("Known interaction (database)")
@@ -112,7 +126,7 @@ def show_patient_checker():
                 predicted_effect=ai["predicted_effect"],
                 severity_score=ai["severity_score"],
                 explanation=ai["explanation"],
-                target_doctor_id=target_doctor_id
+                target_doctor_id=selected_doctor_id,
             )
 
 

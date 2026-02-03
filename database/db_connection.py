@@ -16,7 +16,8 @@ from database.models import (
 DB_URL = os.getenv("NEUROPHARMDB_DB_URL")
 if not DB_URL:
     # default local sqlite
-    DB_URL = "sqlite:///data/neuropharmdb.db"
+    DB_URL = ("sqlite:///data/"
+              "neuropharmdb.db")
 
 engine = create_engine(DB_URL, echo=False, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -965,7 +966,7 @@ def store_ai_suggestion(user_id, drug1_id, drug2_id, predicted_effect, severity_
         db.commit()
         db.refresh(s)
 
-        # Notify the selected doctor (doctor sees it in Alerts)
+        # Notify ONLY the selected doctor
         if target_doctor_id:
             create_alert_for_user(
                 user_id=target_doctor_id,
@@ -979,12 +980,12 @@ def store_ai_suggestion(user_id, drug1_id, drug2_id, predicted_effect, severity_
 
 
 
+
 def get_pending_ai_suggestions(doctor_id: str | None = None):
     db = SessionLocal()
     try:
         q = db.query(AIInteractionSuggestion).filter(AIInteractionSuggestion.status == "PENDING")
 
-        # If table has target_doctor_id, filter for doctor users
         if doctor_id and hasattr(AIInteractionSuggestion, "target_doctor_id"):
             q = q.filter(AIInteractionSuggestion.target_doctor_id == doctor_id)
 
@@ -1003,6 +1004,7 @@ def get_pending_ai_suggestions(doctor_id: str | None = None):
         } for r in rows]
     finally:
         db.close()
+
 
 
 

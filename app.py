@@ -71,7 +71,7 @@ st.write("")
 # ---------------------------
 # ROLE-BASED NAVIGATION
 # ---------------------------
-if ROLE == "admin":
+if ROLE in ("admin", "doctor"):
     PAGES = {
         "Home": show_home,
         "Drugs": show_drug_page,

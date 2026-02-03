@@ -1,57 +1,51 @@
 import streamlit as st
 import pandas as pd
-from database.db_connection import init_db, create_user, list_users
+
+from database import db_connection as dbc
+
 
 def show_user_page():
     st.markdown(
         """
-        <div class="apple-card">
-          <div class="apple-title">Users</div>
-          <div class="apple-subtitle">Manage users (user_id + email login)</div>
+        <div style="padding:16px;border:1px solid rgba(255,255,255,0.08);border-radius:18px;
+                    background:rgba(255,255,255,0.04);margin-bottom:14px;">
+            <div style="font-size:20px;font-weight:800;">Users</div>
+            <div style="opacity:0.8;margin-top:6px;">
+                Create users and assign role (patient / doctor). Login uses User ID + Email.
+            </div>
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
-    st.write("")
 
-    init_db()
+    dbc.init_db()
 
     col1, col2 = st.columns([1, 2])
+
     with col1:
-        st.subheader("Create User")
+        st.subheader("Create / Update User")
 
-        user_id = st.text_input("User ID")
-        name = st.text_input("Name")
-        email = st.text_input("Email")
+        user_id = st.text_input("User ID", key="u_user_id")
+        name = st.text_input("Name", key="u_name")
+        email = st.text_input("Email", key="u_email")
+        age = st.text_input("Age", key="u_age")  # keep string if backend expects
+        medical_history = st.text_area("Medical History", key="u_med_hist")
 
-        role = st.selectbox(
-            "Role",
-            ["patient", "admin"],
-            help="Admin/Doctor can manage drugs and interactions. Patient has limited access."
-        )
+        role = st.selectbox("Role", ["patient", "doctor"], key="u_role")
 
-        age = st.number_input("Age", min_value=0, step=1)
-        medical_history = st.text_area("Medical History")
-
-        if st.button("Create User", type="primary"):
-            if not user_id or not email:
-                st.error("User ID and Email are required.")
+        if st.button("Save User", use_container_width=True, key="u_save_btn"):
+            if not user_id or not name or not email:
+                st.error("User ID, Name, Email are required.")
             else:
-                create_user(
-                    user_id=user_id,
-                    name=name,
-                    email=email,
-                    age=age,
-                    medical_history=medical_history,
-                    role=role
-                )
-                st.success(f"User {user_id} created with role '{role}'.")
+                # create_user signature in your backend: (user_id, name, email, age, medical_history, role="patient")
+                dbc.create_user(user_id, name, email, age, medical_history, role=role)
+                st.success(f"Saved {user_id} as {role}.")
                 st.rerun()
 
     with col2:
         st.subheader("All Users")
-        users = list_users()
-        if users:
-            st.dataframe(pd.DataFrame(users), use_container_width=True, hide_index=True)
+        users = dbc.list_users() if hasattr(dbc, "list_users") else []
+        if not users:
+            st.info("No users found.")
         else:
-            st.info("No users yet.")
+            st.dataframe(pd.DataFrame(users), use_container_width=True, hide_index=True)

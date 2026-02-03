@@ -1,25 +1,42 @@
-from database.db_connection import init_db, create_user, create_drug, create_neuro_effect, add_interaction
+from database.db_connection import (
+    init_db,
+    create_user,
+    create_drug,
+    create_neuro_effect,
+    add_interaction
+)
 
 def main():
     init_db()
 
-    # --- Sample accounts for login ---
+    # --- Demo accounts for login ---
     # Patient login: U001 + harshit@example.com
     # Doctor/Admin login: DOC001 + doctor@neuropharmdb.com
+
+    # DO NOT swallow errors; print them so you can debug
     try:
-        create_user("U001", "Harshit", "harshit@example.com", age=20, medical_history="None", role="patient")
-    except Exception:
-        pass
+        create_user(
+            user_id="U001",
+            name="Harshit",
+            email="harshit@example.com",
+            role="patient",
+            age=20,
+            medical_history="None"
+        )
+        print("Created/updated patient demo user: U001")
+    except Exception as e:
+        print("Patient creation error:", e)
 
     try:
         create_user(
-            "DOC001",
-            "Doctor Admin",
-            "doctor@neuropharmdb.com",
+            user_id="DOC001",
+            name="Doctor Admin",
+            email="doctor@neuropharmdb.com",
+            role="admin",
             age=None,
-            medical_history=None,
-            role="admin"
+            medical_history=None
         )
+        print("Created/updated doctor demo user: DOC001")
     except Exception as e:
         print("Doctor creation error:", e)
 
@@ -32,10 +49,10 @@ def main():
     ]:
         try:
             create_drug(*d)
-        except Exception:
-            pass
+        except Exception as e:
+            print("Drug insert error:", d[0], e)
 
-    # --- Sample neuro effects (includes requested ones) ---
+    # --- Sample neuro effects ---
     effects = [
         ("E001", "Drowsiness", "Sedation", "Medium"),
         ("E010", "Sedation", "Sedation", "High"),
@@ -46,10 +63,10 @@ def main():
     for e in effects:
         try:
             create_neuro_effect(*e)
-        except Exception:
-            pass
+        except Exception as ex:
+            print("Neuro effect insert error:", e[0], ex)
 
-    # --- More sample drugs (to demonstrate interactions) ---
+    # --- More sample drugs ---
     more_drugs = [
         ("D004", "Bupropion", "NDRI", "Norepinephrine/Dopamine reuptake inhibition"),
         ("D005", "Tramadol", "Opioid/Serotonergic", "μ-opioid agonist + serotonin/norepinephrine reuptake inhibition"),
@@ -59,27 +76,22 @@ def main():
     for d in more_drugs:
         try:
             create_drug(*d)
-        except Exception:
-            pass
+        except Exception as e:
+            print("Drug insert error:", d[0], e)
 
-    # --- Sample interactions (requested: Weight Gain / Sedation / Seizures) ---
-    # NOTE: Alerts are generated when user adds drugs to Timeline (better logic).
+    # --- Sample interactions ---
     interactions = [
-        # Sedation (high)
         ("I001", "D001", "D002", "E010", 8.5, "Additive CNS depression / sedation"),
-        # Dizziness (medium) example with diazepam
         ("I004", "D001", "D008", "E013", 5.8, "Possible additive CNS effects (dizziness/drowsiness)"),
-        # Seizures (high)
         ("I002", "D004", "D005", "E012", 9.2, "Both may lower seizure threshold; serotonergic/opioid overlap"),
-        # Weight gain (high-ish)
         ("I003", "D006", "D007", "E011", 7.4, "Additive metabolic impact: appetite + weight changes"),
     ]
     for it in interactions:
         try:
             add_interaction(*it)
-        except Exception:
-            pass
-    
+        except Exception as e:
+            print("Interaction insert error:", it[0], e)
+
     print("Initialized NeuroPharmDB. Run: streamlit run app.py")
 
 if __name__ == "__main__":

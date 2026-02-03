@@ -1,127 +1,119 @@
 import streamlit as st
 
-from database.db_connection import list_drugs, evaluate_pair_and_alert, ai_predict_effect, store_ai_suggestion
+from database import db_connection as dbc
+from frontend.layout import severity_badge
 
 
-def _severity_badge(sev: float) -> str:
-    """Simple badge that works even if your layout.py doesn't expose severity_badge."""
-    if sev is None:
-        return ""
-    try:
-        sev_f = float(sev)
-    except Exception:
-        return str(sev)
-
-    if sev_f >= 7:
-        color = "#ff453a"  # red
-        label = "HIGH"
-    elif sev_f >= 4:
-        color = "#ff9f0a"  # amber
-        label = "MODERATE"
-    else:
-        color = "#32d74b"  # green
-        label = "LOW"
-
-    return (
-        f"<span style='display:inline-block;padding:4px 10px;border-radius:999px;"
-        f"background:{color};color:#000;font-weight:700;font-size:12px;'>"
-        f"{label} · {sev_f:.1f}/10</span>"
-    )
+def _drug_label(d: dict) -> str:
+    did = d.get("drug_id") or ""
+    nm = d.get("name") or ""
+    return f"{nm} ({did})" if nm else did
 
 
 def show_patient_checker():
-    """Patient-only page: select two drugs and auto-detect interaction/effect."""
+    """Patient tool: select 2 drugs and check known interactions, plus AI suggestion (pending doctor review)."""
+
+    dbc.init_db()
+
+    user_id = st.session_state.get("user_id")
+    role = (st.session_state.get("role") or "patient").lower()
+
     st.markdown(
         """
-        <div style="padding:16px;border:1px solid rgba(255,255,255,0.08);border-radius:18px;\
-                    background:rgba(255,255,255,0.04);margin-bottom:14px;">
-            <div style="font-size:20px;font-weight:700;">Drug Safety Checker</div>
-            <div style="opacity:0.8;margin-top:6px;">Pick two drugs. The system will auto-detect interactions, neuro effect, severity and create alerts for high-risk pairs.</div>
+        <div class='glass-card'>
+            <h2 style='margin:0'>Check Drug Safety</h2>
+            <p style='margin:6px 0 0 0' class='muted'>Select two drugs. The system checks known interactions and can also generate an AI-based suggestion that requires doctor review.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    user_id = st.session_state.get("user_id")
-    if not user_id:
-        st.error("You are not logged in.")
-        return
+    if role not in ("patient", "doctor", "admin"):
+        st.warning("Your role is not recognized.")
 
-    drugs = list_drugs()
+    drugs = dbc.list_drugs()
     if not drugs:
-        st.info("No drugs found in database. Ask the doctor/admin to add drugs first.")
+        st.info("No drugs found in the database.")
         return
 
-    options = ["— Select —"] + [f"{d['name']} ({d['drug_id']})" for d in drugs]
-    to_id = {f"{d['name']} ({d['drug_id']})": d["drug_id"] for d in drugs}
+    drug_opts = {_drug_label(d): d["drug_id"] for d in drugs}
+    labels = list(drug_opts.keys())
 
     c1, c2 = st.columns(2)
     with c1:
-        d1 = st.selectbox("Drug 1", options, key="checker_d1")
+        a_label = st.selectbox("Drug A", labels, key="pc_drug_a")
     with c2:
-        d2 = st.selectbox("Drug 2", options, key="checker_d2")
+        b_label = st.selectbox("Drug B", labels, key="pc_drug_b")
 
-    if st.button("Check", type="primary", key="checker_run"):
-        if d1 == "— Select —" or d2 == "— Select —":
-            st.error("Select two drugs.")
-            return
-        if d1 == d2:
-            st.error("Select two different drugs.")
-            return
+    drug_a = drug_opts[a_label]
+    drug_b = drug_opts[b_label]
 
-        drug_a = to_id[d1]
-        drug_b = to_id[d2]
+    if drug_a == drug_b:
+        st.warning("Please select two different drugs.")
+        return
 
-        result = evaluate_pair_and_alert(user_id, drug_a, drug_b, threshold=7.0)
+    st.divider()
 
-        if result.get("status") == "safe" or not result.get("interaction"):
-            st.success("No interaction found in the database for this pair. (Based on current knowledge base)")
-            return
+    # 1) Known interaction (database)
+    st.subheader("Known interaction (database)")
+    known = dbc.check_interaction_pair(drug_a, drug_b)
 
-        inter = result["interaction"]
-        effect = inter.get("effect_name") or inter.get("effect_id")
-        sev = inter.get("severity_score")
-        mechanism = inter.get("mechanism")
+    if not known:
+        st.info("No known interaction found for this pair.")
+    else:
+        sev = float(known.get("severity_score", 0.0))
+        st.markdown(severity_badge(sev), unsafe_allow_html=True)
+        st.write(f"Effect: {known.get('effect_name', '')}")
+        if known.get("mechanism"):
+            st.caption(known.get("mechanism"))
 
-        st.markdown(
-            f"""
-            <div style="padding:16px;border-radius:18px;border:1px solid rgba(255,255,255,0.10);\
-                        background:rgba(255,255,255,0.03);">
-                <div style="font-size:16px;font-weight:700;">Effect detected: {effect}</div>
-                <div style="margin-top:10px;">Severity: {_severity_badge(sev)}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.warning(
-            "⚠️ AI-Predicted Effect\n\n"
-            "This effect is generated by an AI system and may be inaccurate. "
-            "It is NOT a medical diagnosis and requires doctor approval."
-        )
+        # Auto-alert patient if high risk
+        if user_id and sev >= 7.0:
+            try:
+                dbc.create_alert_for_user(
+                    user_id=user_id,
+                    interaction_id=known.get("interaction_id"),
+                    drug1_id=drug_a,
+                    drug2_id=drug_b,
+                    message=(
+                        f"High-risk interaction: {drug_a} + {drug_b} → {known.get('effect_name','')} "
+                        f"(Severity {sev:.1f}/10)."
+                    ),
+                )
+                st.success("Alert created for this interaction (check Alerts page).")
+            except Exception:
+                # de-dupe and DB integrity errors are fine to ignore here
+                pass
 
-        ai = ai_predict_effect(drug_a, drug_b)
+    st.divider()
 
-        store_ai_suggestion(
-            drug_a,
-            drug_b,
-            ai["effect"],
-            ai["severity"],
-            ai["explanation"]
-        )
+    # 2) AI suggestion (pending doctor review)
+    st.subheader("AI suggestion (requires doctor review)")
+    st.caption(
+        "AI suggestions are generated by a simple heuristic for demo purposes and may be incorrect. "
+        "A doctor must approve or deny the suggestion."
+    )
 
-        st.markdown(f"""
-        **Predicted Effect:** {ai['effect']}  
-        **Estimated Severity:** {ai['severity']} / 10  
-        **Explanation:** {ai['explanation']}
-        """)
+    if not user_id:
+        st.info("Login as a user to store AI suggestions.")
+        return
 
-        if mechanism:
-            st.markdown("### Why was I alerted?")
-            st.info(mechanism)
+    if st.button("Generate AI suggestion", use_container_width=True, key="pc_gen_ai"):
+        try:
+            ai = dbc.ai_predict_effect(drug_a, drug_b)
+            sid = dbc.store_ai_suggestion(
+                user_id,
+                drug_a,
+                drug_b,
+                ai["predicted_effect"],
+                ai["severity_score"],
+                ai.get("explanation", ""),
+            )
 
-        if result.get("status") == "high":
-            st.error("High risk interaction. An alert has been generated and stored in Alerts.")
-        elif result.get("status") == "medium":
-            st.warning("Moderate risk interaction. Please use caution.")
-        else:
-            st.warning("Mild interaction possible.")
+            st.success(f"AI suggestion stored as PENDING for doctor review (Suggestion #{sid}).")
+            st.markdown(severity_badge(ai["severity_score"]), unsafe_allow_html=True)
+            st.write(f"Predicted effect: {ai['predicted_effect']}")
+            if ai.get("explanation"):
+                st.caption(ai["explanation"])
+        except Exception as e:
+            st.error(f"AI prediction failed: {e}")

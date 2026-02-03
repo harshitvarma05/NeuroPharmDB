@@ -1,76 +1,115 @@
 import streamlit as st
 import pandas as pd
-from database.db_connection import list_recent_alerts, mark_alerts_read_for_user, get_alert_explanation
-from frontend.layout import severity_badge
+
+from database import db_connection as dbc
+
+
+def _severity_badge(sev: float) -> str:
+    if sev is None:
+        return ""
+    try:
+        sev_f = float(sev)
+    except Exception:
+        return str(sev)
+
+    if sev_f >= 7:
+        color = "#ff453a"
+        label = "HIGH"
+    elif sev_f >= 4:
+        color = "#ff9f0a"
+        label = "MOD"
+    else:
+        color = "#32d74b"
+        label = "LOW"
+
+    return (
+        f"<span style='display:inline-block;padding:4px 10px;border-radius:999px;"
+        f"background:{color};color:#000;font-weight:800;font-size:12px;'>"
+        f"{label} · {sev_f:.1f}/10</span>"
+    )
+
 
 def show_alert_page():
     st.markdown(
         """
-        <div class="apple-card">
-          <div class="apple-title">Alerts</div>
-          <div class="apple-subtitle">Notifications created automatically for high severity interactions</div>
+        <div style="padding:16px;border:1px solid rgba(255,255,255,0.08);border-radius:18px;
+                    background:rgba(255,255,255,0.04);margin-bottom:14px;">
+            <div style="font-size:20px;font-weight:800;">Alerts</div>
+            <div style="opacity:0.8;margin-top:6px;">
+                Notifications for DB interactions and AI predictions (plus doctor approval/denial).
+            </div>
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
-    st.write("")
 
     user_id = st.session_state.get("user_id")
     if not user_id:
         st.error("Not logged in.")
         return
 
+    if not hasattr(dbc, "list_recent_alerts"):
+        st.error("Backend missing list_recent_alerts().")
+        return
+
     c1, c2 = st.columns([2, 1])
     with c1:
         st.subheader("Recent Alerts")
     with c2:
-        if st.button("Mark all as read", key="alerts_mark_all_read"):
-            mark_alerts_read_for_user(user_id)
-            st.success("Marked as read.")
-            st.rerun()
+        if hasattr(dbc, "mark_alerts_read_for_user"):
+            if st.button("Mark all as read", key="alerts_mark_all_read", use_container_width=True):
+                dbc.mark_alerts_read_for_user(user_id)
+                st.success("Marked all as read.")
+                st.rerun()
 
-    alerts = list_recent_alerts(user_id, limit=100)
-    if not alerts:
-        st.info("No alerts yet. Add drugs to Timeline that have a high-risk interaction.")
+    alerts = dbc.list_recent_alerts(user_id, limit=100)
+    # alerts could be ORM rows or dicts
+    rows = []
+    for a in alerts:
+        if isinstance(a, dict):
+            rows.append(a)
+        else:
+            rows.append({
+                "alert_id": getattr(a, "alert_id", None),
+                "message": getattr(a, "message", None),
+                "severity_score": getattr(a, "severity_score", None),
+                "status": getattr(a, "status", None),
+                "created_at": str(getattr(a, "created_at", "")),
+            })
+
+    if not rows:
+        st.info("No alerts yet.")
         return
 
-    df = pd.DataFrame(alerts)
+    df = pd.DataFrame(rows)
     st.dataframe(df, use_container_width=True, hide_index=True)
 
     st.markdown("---")
     st.subheader("Why was I alerted?")
 
-    alert_ids = [a["alert_id"] for a in alerts]
-    picked = st.selectbox("Select an alert", ["—"] + alert_ids, key="alert_pick")
-    if picked != "—":
-        info = get_alert_explanation(picked)
+    alert_ids = [r.get("alert_id") for r in rows if r.get("alert_id") is not None]
+    pick = st.selectbox("Select alert", ["—"] + alert_ids, key="alert_pick_id")
+
+    if pick != "—":
+        if not hasattr(dbc, "get_alert_explanation"):
+            st.error("Backend missing get_alert_explanation().")
+            return
+
+        info = dbc.get_alert_explanation(pick)
         if not info:
-            st.error("Alert not found.")
-        else:
-            st.markdown(
-                f"""
-                <div class="apple-card">
-                  <div class="apple-title">Explanation</div>
-                  <div class="apple-subtitle">Reasoning for this alert</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-            st.write("")
-            st.markdown(f"**Status:** `{info['status']}`")
-            st.markdown(f"**Created:** `{info['created_at']}`")
-            st.markdown(f"**Severity:** {severity_badge(info.get('severity_score'))}", unsafe_allow_html=True)
+            st.error("No explanation found for this alert.")
+            return
 
-            st.markdown("### Drugs involved")
-            st.write(f"**Drug 1:** {info['drug1_name']} ({info['drug1_id']}) — {info.get('drug1_class') or ''}")
-            st.write(f"**Drug 2:** {info['drug2_name']} ({info['drug2_id']}) — {info.get('drug2_class') or ''}")
+        st.markdown(f"**Severity:** {_severity_badge(info.get('severity_score', 0))}", unsafe_allow_html=True)
+        st.write(f"**Message:** {info.get('message','')}")
+        st.write(f"**Created:** {info.get('created_at','')}")
 
-            st.markdown("### Effect")
-            st.write(f"**Effect:** {info.get('effect_name') or '—'}")
-            st.write(f"**Category:** {info.get('effect_category') or '—'}")
+        if info.get("source") == "database":
+            st.write("**Source:** Known DB interaction")
+        elif info.get("source") == "ai":
+            st.write("**Source:** AI suggestion (prototype)")
+            st.warning("AI can be incorrect. Doctor decision should be followed.")
 
-            st.markdown("### Mechanism (Why this happens)")
-            st.write(info.get("interaction_mechanism") or "—")
-
-            st.markdown("### Alert message")
-            st.info(info.get("message") or "")
+        with st.expander("Details"):
+            for k, v in info.items():
+                st.write(f"**{k}**: {v}")

@@ -216,10 +216,66 @@ main {
   font-weight: 700;
 }
 
+.glass-lite {
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-strong) 68%, transparent);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+}
+
+.patient-context {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.6fr) minmax(0, 1.4fr);
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 14px;
+  border-radius: 16px;
+  padding: 14px;
+}
+
+.patient-context h3,
+.patient-context p {
+  margin-bottom: 0;
+}
+
+.patient-context p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.context-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.context-chip {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-strong);
+  color: var(--muted);
+  padding: 0 12px;
+  font-weight: 650;
+}
+
+.context-chip:hover,
+.context-chip.active {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: color-mix(in srgb, var(--accent) 13%, var(--panel-strong));
+  color: var(--accent);
+}
+
 .intelligence-grid {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(340px, 1.2fr);
   gap: 14px;
+}
+
+.patient-risk-card,
+.explain-card {
+  min-height: 310px;
 }
 
 .insight-card {
@@ -228,7 +284,7 @@ main {
   border-radius: 16px;
   background: var(--field);
   padding: 16px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .insight-card h3 {
@@ -254,14 +310,16 @@ main {
 
 .mini-stack,
 .warning-group,
-.signal-group {
+.signal-group,
+.alternative-list {
   display: grid;
   gap: 8px;
   margin-top: 12px;
 }
 
 .mini-risk,
-.signal-row {
+.signal-row,
+.alternative-row {
   display: grid;
   gap: 3px;
   border: 1px solid var(--line);
@@ -271,9 +329,123 @@ main {
 }
 
 .mini-risk span,
-.signal-row span {
+.signal-row span,
+.alternative-row span {
   color: var(--muted);
   font-size: 0.86rem;
+}
+
+.alternative-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.risk-score {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-strong));
+  padding: 14px;
+}
+
+.risk-score div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.risk-score strong {
+  font-size: 3rem;
+  line-height: 0.92;
+}
+
+.risk-score span {
+  color: var(--muted);
+  font-weight: 760;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+}
+
+.risk-score p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.risk-score.high,
+.risk-score.critical {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--line));
+  background: color-mix(in srgb, var(--danger) 12%, var(--panel-strong));
+}
+
+.risk-score.moderate {
+  border-color: color-mix(in srgb, var(--warn) 44%, var(--line));
+  background: color-mix(in srgb, var(--warn) 13%, var(--panel-strong));
+}
+
+.risk-score.low {
+  border-color: color-mix(in srgb, var(--ok) 40%, var(--line));
+  background: color-mix(in srgb, var(--ok) 12%, var(--panel-strong));
+}
+
+.context-score-list,
+.evidence-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.context-score-row,
+.evidence-row {
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--panel-strong) 72%, transparent);
+  padding: 10px;
+}
+
+.context-score-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.context-score-row span,
+.evidence-head span,
+.evidence-row small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.context-score-row b {
+  color: var(--accent);
+  font-size: 1.4rem;
+}
+
+.context-score-row.high,
+.context-score-row.critical {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--line));
+}
+
+.context-score-row.moderate {
+  border-color: color-mix(in srgb, var(--warn) 34%, var(--line));
+}
+
+.evidence-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.evidence-row p {
+  margin-bottom: 6px;
+  color: color-mix(in srgb, var(--ink) 88%, var(--muted));
+  line-height: 1.42;
+}
+
+.monitor-note {
+  margin-top: 12px;
 }
 
 .mini-risk.high {
@@ -558,11 +730,14 @@ input:focus,
   align-items: center;
   gap: 14px;
   margin: 18px 0;
+  flex-wrap: wrap;
 }
 
 .primary-button,
 .ghost-button,
-.tab {
+.tab,
+.filter-chip,
+.mini-button {
   min-height: 42px;
   border-radius: 999px;
   border: 1px solid var(--line);
@@ -585,21 +760,53 @@ input:focus,
 .primary-button:active,
 .ghost-button:active,
 .tab:active,
+.filter-chip:active,
+.mini-button:active,
 .icon-button:active {
   transform: scale(0.985);
 }
 
 .ghost-button,
-.tab {
+.tab,
+.filter-chip,
+.mini-button {
   background: var(--panel-strong);
   color: var(--ink);
 }
 
 .ghost-button:hover,
 .tab:hover,
-.tab.active {
+.tab.active,
+.filter-chip:hover,
+.filter-chip.active,
+.mini-button:hover {
   background: color-mix(in srgb, var(--accent) 12%, var(--panel-strong));
   border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
+}
+
+.mini-button {
+  min-height: 32px;
+  padding: 0 12px;
+  color: var(--accent);
+  font-size: 0.82rem;
+}
+
+.severity-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 16px;
+}
+
+.filter-chip {
+  min-height: 34px;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.filter-chip.active {
+  color: var(--accent);
 }
 
 .result {
@@ -735,6 +942,14 @@ input:focus,
   margin-bottom: 0;
 }
 
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .meta-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -805,7 +1020,8 @@ input:focus,
   margin-top: 14px;
 }
 
-.reader-modal {
+.reader-modal,
+.profile-modal {
   position: fixed;
   inset: 0;
   z-index: 100;
@@ -829,6 +1045,32 @@ input:focus,
   overflow: auto;
   border-radius: 20px;
   padding: 22px;
+}
+
+.profile-panel {
+  position: relative;
+  width: min(980px, 100%);
+  max-height: min(820px, calc(100vh - 48px));
+  overflow: auto;
+  border-radius: 20px;
+  padding: 22px;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.profile-section {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--field);
+  padding: 14px;
+}
+
+.profile-section.wide {
+  grid-column: 1 / -1;
 }
 
 .reader-head {
@@ -925,11 +1167,26 @@ input:focus,
     grid-template-columns: 1fr;
   }
 
+  .patient-context,
+  .evidence-head {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .context-chips {
+    justify-content: flex-start;
+  }
+
   .meta-grid {
     grid-template-columns: 1fr;
   }
 
   .details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-grid {
     grid-template-columns: 1fr;
   }
 

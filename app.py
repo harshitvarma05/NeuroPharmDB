@@ -15,6 +15,69 @@ ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "drugbank_full.db"
 STATIC_DIR = ROOT / "static"
 
+PATIENT_CONTEXT_RULES = {
+    "older_adult": {
+        "label": "Older adult",
+        "terms": ("geriatric", "elderly", "aged", "75 years", "advanced age", "older"),
+        "points": 9,
+        "monitor": "Review dose sensitivity, fall risk, bleeding, renal function, and CNS adverse effects.",
+    },
+    "pregnancy": {
+        "label": "Pregnancy",
+        "terms": ("pregnancy", "pregnant", "fetal", "foetal", "teratogen", "teratogenic", "labor", "labour", "breastfeeding", "nursing"),
+        "points": 14,
+        "monitor": "Check pregnancy safety language, fetal risk, labor effects, and lactation warnings.",
+    },
+    "kidney": {
+        "label": "Kidney disease",
+        "terms": ("renal", "kidney", "nephro", "urine", "urinary", "esrd", "dialysis", "creatinine", "glomerular"),
+        "points": 11,
+        "monitor": "Review renal elimination, dose adjustment language, accumulation risk, and renal adverse effects.",
+    },
+    "liver": {
+        "label": "Liver disease",
+        "terms": ("hepatic", "liver", "cirrhosis", "cyp", "cytochrome", "metabolism", "transaminase", "bilirubin"),
+        "points": 10,
+        "monitor": "Review hepatic metabolism, CYP overlap, liver impairment language, and exposure changes.",
+    },
+    "bleeding": {
+        "label": "Bleeding risk",
+        "terms": ("bleeding", "hemorrhage", "haemorrhage", "anticoagulant", "antiplatelet", "platelet", "inr", "thrombin", "coagulation"),
+        "points": 14,
+        "monitor": "Review anticoagulant or antiplatelet overlap, bleeding symptoms, INR language, and GI bleeding risk.",
+    },
+    "diabetes": {
+        "label": "Diabetes",
+        "terms": ("diabetes", "diabetic", "glucose", "glycemic", "glycaemic", "hypoglycemia", "hyperglycemia", "insulin"),
+        "points": 8,
+        "monitor": "Review glucose-related warnings, metabolic effects, and diabetes-specific indications.",
+    },
+    "hypertension": {
+        "label": "Hypertension",
+        "terms": ("hypertension", "blood pressure", "hypotension", "sodium retention", "diuretic", "cardiac", "heart failure"),
+        "points": 8,
+        "monitor": "Review blood pressure effects, sodium retention, heart failure language, and cardiovascular warnings.",
+    },
+    "alcohol": {
+        "label": "Alcohol use",
+        "terms": ("alcohol", "ethanol", "cns depression", "sedation", "drowsiness", "liver", "hepatic"),
+        "points": 8,
+        "monitor": "Review CNS depression, hepatic metabolism, toxicity, and counseling language.",
+    },
+}
+
+RISK_ESCALATORS = {
+    "contraindicated": 8,
+    "contraindication": 8,
+    "fatal": 8,
+    "life-threatening": 8,
+    "toxicity": 5,
+    "severe": 5,
+    "increase": 3,
+    "increased": 3,
+    "risk": 2,
+}
+
 
 def get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
@@ -116,6 +179,17 @@ class NeuroPharmHandler(BaseHTTPRequestHandler):
             elif path == "/api/ai-insights":
                 params = parse_qs(parsed.query)
                 self.send_json(self.ai_insights(params.get("ids", [""])[0]))
+            elif path == "/api/patient-risk":
+                params = parse_qs(parsed.query)
+                self.send_json(
+                    self.patient_risk(
+                        params.get("ids", [""])[0],
+                        params.get("contexts", [""])[0],
+                    )
+                )
+            elif path == "/api/similar":
+                params = parse_qs(parsed.query)
+                self.send_json(self.similar_drugs(params.get("drug", [""])[0]))
             elif path.startswith("/api/drugs/") and path.endswith("/interactions"):
                 drug_id = path.removeprefix("/api/drugs/").removesuffix("/interactions").strip("/")
                 params = parse_qs(parsed.query)
@@ -360,6 +434,215 @@ class NeuroPharmHandler(BaseHTTPRequestHandler):
             return ids, f"Please use {max_ids} drugs or fewer."
         return ids, None
 
+    def parsed_contexts(self, raw_contexts: str) -> list[str]:
+        contexts = []
+        for context in raw_contexts.split(","):
+            clean_context = context.strip()
+            if clean_context in PATIENT_CONTEXT_RULES and clean_context not in contexts:
+                contexts.append(clean_context)
+        return contexts
+
+    def evidence_excerpt(self, text: str, terms: tuple[str, ...], limit: int = 220) -> str:
+        clean = clean_text(text)
+        if not clean:
+            return ""
+        lower = clean.lower()
+        positions = [lower.find(term) for term in terms if lower.find(term) >= 0]
+        if not positions:
+            return compact(clean, limit)
+        start = max(0, min(positions) - 70)
+        end = min(len(clean), min(positions) + limit)
+        excerpt = clean[start:end].strip()
+        if start:
+            excerpt = f"...{excerpt}"
+        if end < len(clean):
+            excerpt = f"{excerpt}..."
+        return excerpt
+
+    def risk_level(self, score: int) -> str:
+        if score >= 70:
+            return "critical"
+        if score >= 45:
+            return "high"
+        if score >= 22:
+            return "moderate"
+        if score > 0:
+            return "low"
+        return "none"
+
+    def patient_risk(self, raw_ids: str, raw_contexts: str) -> dict:
+        ids, error = self.parsed_ids(raw_ids)
+        if error:
+            return {"error": error}
+
+        contexts = self.parsed_contexts(raw_contexts)
+        if not contexts:
+            return {"error": "Select at least one patient context."}
+
+        placeholders = ",".join("?" for _ in ids)
+        with get_db() as db:
+            drug_rows = db.execute(
+                f"""
+                SELECT drugbank_id, name, description, indication, pharmacodynamics,
+                       mechanism_of_action, toxicity, metabolism, absorption,
+                       half_life, route_of_elimination
+                FROM drugs
+                WHERE drugbank_id IN ({placeholders})
+                """,
+                ids,
+            ).fetchall()
+            drugs_by_id = {row["drugbank_id"]: row for row in drug_rows}
+            if len(drugs_by_id) != len(ids):
+                return {"error": "One or more selected drugs could not be found."}
+
+            food_rows = db.execute(
+                f"""
+                SELECT drug_id, description
+                FROM food_interactions
+                WHERE drug_id IN ({placeholders})
+                """,
+                ids,
+            ).fetchall()
+            interaction_rows = db.execute(
+                f"""
+                SELECT drug1_id, drug2_id, description
+                FROM drug_interactions
+                WHERE drug1_id IN ({placeholders})
+                  AND drug2_id IN ({placeholders})
+                """,
+                [*ids, *ids],
+            ).fetchall()
+
+        field_map = {
+            "description": "Description",
+            "indication": "Indication",
+            "pharmacodynamics": "Pharmacodynamics",
+            "mechanism_of_action": "Mechanism",
+            "toxicity": "Toxicity",
+            "metabolism": "Metabolism",
+            "absorption": "Absorption",
+            "half_life": "Half-life",
+            "route_of_elimination": "Elimination",
+        }
+
+        context_results = []
+        all_signals = []
+        for context in contexts:
+            rule = PATIENT_CONTEXT_RULES[context]
+            terms = rule["terms"]
+            signals = []
+            context_points = 0
+
+            for drug_id in ids:
+                drug = drugs_by_id[drug_id]
+                for field, label in field_map.items():
+                    text = clean_text(drug[field])
+                    if not text:
+                        continue
+                    lower = text.lower()
+                    matched = [term for term in terms if term in lower]
+                    if not matched:
+                        continue
+                    escalator_points = sum(points for term, points in RISK_ESCALATORS.items() if term in lower)
+                    points = min(rule["points"] + escalator_points, 24)
+                    signal = {
+                        "drugId": drug_id,
+                        "drugName": drug["name"] or drug_id,
+                        "source": label,
+                        "matched": matched[:4],
+                        "excerpt": self.evidence_excerpt(text, terms),
+                        "points": points,
+                    }
+                    signals.append(signal)
+                    context_points += points
+
+            for row in food_rows:
+                text = clean_text(row["description"])
+                lower = text.lower()
+                matched = [term for term in terms if term in lower]
+                if not matched:
+                    continue
+                drug = drugs_by_id[row["drug_id"]]
+                points = min(rule["points"] + 3, 18)
+                signal = {
+                    "drugId": row["drug_id"],
+                    "drugName": drug["name"] or row["drug_id"],
+                    "source": "Food interaction",
+                    "matched": matched[:4],
+                    "excerpt": self.evidence_excerpt(text, terms),
+                    "points": points,
+                }
+                signals.append(signal)
+                context_points += points
+
+            unique_interactions: dict[frozenset[str], sqlite3.Row] = {}
+            for row in interaction_rows:
+                unique_interactions.setdefault(frozenset((row["drug1_id"], row["drug2_id"])), row)
+
+            for row in unique_interactions.values():
+                text = clean_text(row["description"])
+                lower = text.lower()
+                matched = [term for term in terms if term in lower]
+                if not matched:
+                    continue
+                severity, label = severity_for(text)
+                points = rule["points"] + (12 if severity == "high" else 6 if severity == "moderate" else 3)
+                signal = {
+                    "drugId": f"{row['drug1_id']}+{row['drug2_id']}",
+                    "drugName": f"{drugs_by_id[row['drug1_id']]['name']} + {drugs_by_id[row['drug2_id']]['name']}",
+                    "source": f"Pair interaction · {label}",
+                    "matched": matched[:4],
+                    "excerpt": self.evidence_excerpt(text, terms),
+                    "points": min(points, 28),
+                }
+                signals.append(signal)
+                context_points += signal["points"]
+
+            signals.sort(key=lambda item: (-item["points"], item["drugName"], item["source"]))
+            score = min(100, context_points)
+            context_result = {
+                "id": context,
+                "label": rule["label"],
+                "score": score,
+                "level": self.risk_level(score),
+                "monitor": rule["monitor"],
+                "signalCount": len(signals),
+                "signals": signals[:8],
+            }
+            context_results.append(context_result)
+            all_signals.extend(signals)
+
+        context_results.sort(key=lambda item: (-item["score"], item["label"]))
+        overall_score = min(100, sum(item["score"] for item in context_results) // max(1, len(context_results)) + min(20, len(all_signals) * 2))
+        top_context = context_results[0] if context_results else None
+        explanation = [
+            "The model scans local DrugBank text fields for patient-context terms, then attaches evidence snippets from the exact fields that matched.",
+            "Signals from interaction text and high-risk language such as contraindicated, fatal, severe, toxicity, bleeding, and risk increase the score.",
+            "The score is explainable decision support from local database text, not a diagnosis or a replacement for clinical judgment.",
+        ]
+        if top_context:
+            explanation.insert(0, f"{top_context['label']} is the leading context because it produced {top_context['signalCount']} matched evidence signal(s).")
+
+        return {
+            "mode": "Explainable local patient-context risk scorer",
+            "selectedContexts": [
+                {"id": context, "label": PATIENT_CONTEXT_RULES[context]["label"]}
+                for context in contexts
+            ],
+            "overall": {
+                "score": overall_score,
+                "level": self.risk_level(overall_score),
+                "label": self.risk_level(overall_score).replace("_", " ").title(),
+            },
+            "contexts": context_results,
+            "explanation": explanation,
+            "method": {
+                "fieldsScanned": list(field_map.values()) + ["Food interaction", "Pair interaction"],
+                "escalators": list(RISK_ESCALATORS.keys()),
+                "scoreRange": "0-100",
+            },
+        }
+
     def ai_insights(self, raw_ids: str) -> dict:
         ids, error = self.parsed_ids(raw_ids)
         if error:
@@ -550,6 +833,78 @@ class NeuroPharmHandler(BaseHTTPRequestHandler):
             }
         return result
 
+    def similar_drugs(self, drug_id: str) -> dict:
+        if not drug_id:
+            return {"error": "Choose a drug first."}
+
+        with get_db() as db:
+            drug = db.execute("SELECT drugbank_id, name FROM drugs WHERE drugbank_id = ?", (drug_id,)).fetchone()
+            if drug is None:
+                return {"error": "Drug not found."}
+
+            category_rows = db.execute(
+                "SELECT DISTINCT category AS item FROM categories WHERE drug_id = ? AND category IS NOT NULL",
+                (drug_id,),
+            ).fetchall()
+            enzyme_rows = db.execute(
+                "SELECT DISTINCT name AS item FROM enzymes WHERE drug_id = ? AND name IS NOT NULL",
+                (drug_id,),
+            ).fetchall()
+            target_rows = db.execute(
+                "SELECT DISTINCT name AS item FROM targets WHERE drug_id = ? AND name IS NOT NULL",
+                (drug_id,),
+            ).fetchall()
+
+            categories = [row["item"] for row in category_rows if clean_text(row["item"])]
+            enzymes = [row["item"] for row in enzyme_rows if clean_text(row["item"])]
+            targets = [row["item"] for row in target_rows if clean_text(row["item"])]
+
+            candidates: dict[str, dict] = {}
+
+            def collect(table: str, column: str, items: list[str], weight: int, label: str) -> None:
+                if not items:
+                    return
+                placeholders = ",".join("?" for _ in items)
+                rows = db.execute(
+                    f"""
+                    SELECT d.drugbank_id, d.name, COUNT(DISTINCT src.{column}) AS matches
+                    FROM {table} src
+                    JOIN drugs d ON d.drugbank_id = src.drug_id
+                    WHERE src.{column} IN ({placeholders})
+                      AND src.drug_id != ?
+                      AND d.name IS NOT NULL
+                      AND TRIM(d.name) != ''
+                    GROUP BY d.drugbank_id, d.name
+                    ORDER BY matches DESC, d.name COLLATE NOCASE
+                    LIMIT 80
+                    """,
+                    [*items, drug_id],
+                ).fetchall()
+                for row in rows:
+                    entry = candidates.setdefault(
+                        row["drugbank_id"],
+                        {
+                            "id": row["drugbank_id"],
+                            "name": row["name"],
+                            "score": 0,
+                            "signals": [],
+                        },
+                    )
+                    match_count = int(row["matches"] or 0)
+                    entry["score"] += match_count * weight
+                    if match_count:
+                        entry["signals"].append(f"{match_count} shared {label}")
+
+            collect("categories", "category", categories[:30], 2, "category")
+            collect("enzymes", "name", enzymes[:20], 4, "enzyme")
+            collect("targets", "name", targets[:20], 5, "target")
+
+        ranked = sorted(candidates.values(), key=lambda item: (-item["score"], item["name"].lower()))[:8]
+        return {
+            "source": {"id": drug["drugbank_id"], "name": drug["name"] or drug["drugbank_id"]},
+            "results": ranked,
+        }
+
     def drug_detail(self, drug_id: str) -> dict:
         with get_db() as db:
             drug = db.execute("SELECT * FROM drugs WHERE drugbank_id = ?", (drug_id,)).fetchone()
@@ -568,6 +923,31 @@ class NeuroPharmHandler(BaseHTTPRequestHandler):
                 "SELECT name, organism, action FROM targets WHERE drug_id = ? LIMIT 8",
                 (drug_id,),
             ).fetchall()
+            enzymes = db.execute(
+                "SELECT name, organism FROM enzymes WHERE drug_id = ? LIMIT 8",
+                (drug_id,),
+            ).fetchall()
+            carriers = db.execute(
+                "SELECT name FROM carriers WHERE drug_id = ? LIMIT 8",
+                (drug_id,),
+            ).fetchall()
+            transporters = db.execute(
+                "SELECT name FROM transporters WHERE drug_id = ? LIMIT 8",
+                (drug_id,),
+            ).fetchall()
+            products = db.execute(
+                """
+                SELECT name, manufacturer, dosage_form, route
+                FROM products
+                WHERE drug_id = ?
+                LIMIT 8
+                """,
+                (drug_id,),
+            ).fetchall()
+            dosages = db.execute(
+                "SELECT form, route, strength FROM dosages WHERE drug_id = ? LIMIT 8",
+                (drug_id,),
+            ).fetchall()
             interaction_count = db.execute(
                 """
                 SELECT COUNT(*) FROM drug_interactions
@@ -579,14 +959,40 @@ class NeuroPharmHandler(BaseHTTPRequestHandler):
         return {
             "drug": row_to_drug(drug),
             "categories": [row["category"] for row in categories],
-            "foodInteractions": [row["description"] for row in food],
+            "foodInteractions": [clean_text(row["description"]) for row in food],
             "targets": [
                 {
-                    "name": row["name"],
-                    "organism": row["organism"],
-                    "action": row["action"],
+                    "name": clean_text(row["name"]),
+                    "organism": clean_text(row["organism"]),
+                    "action": clean_text(row["action"]),
                 }
                 for row in targets
+            ],
+            "enzymes": [
+                {
+                    "name": clean_text(row["name"]),
+                    "organism": clean_text(row["organism"]),
+                }
+                for row in enzymes
+            ],
+            "carriers": [clean_text(row["name"]) for row in carriers],
+            "transporters": [clean_text(row["name"]) for row in transporters],
+            "products": [
+                {
+                    "name": clean_text(row["name"]),
+                    "manufacturer": clean_text(row["manufacturer"]),
+                    "form": clean_text(row["dosage_form"]),
+                    "route": clean_text(row["route"]),
+                }
+                for row in products
+            ],
+            "dosages": [
+                {
+                    "form": clean_text(row["form"]),
+                    "route": clean_text(row["route"]),
+                    "strength": clean_text(row["strength"]),
+                }
+                for row in dosages
             ],
             "interactionCount": interaction_count,
         }

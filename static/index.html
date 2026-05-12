@@ -38,7 +38,16 @@
 
           <div class="actions">
             <button class="primary-button" id="checkButton" type="button">Check interactions</button>
+            <button class="ghost-button" id="exportReportButton" type="button">Export report</button>
             <p id="selectionHint">Select at least two drugs.</p>
+          </div>
+
+          <div class="severity-filter" id="severityFilter" aria-label="Filter checked interaction severity">
+            <button class="filter-chip active" type="button" data-severity="all">All</button>
+            <button class="filter-chip" type="button" data-severity="high">High</button>
+            <button class="filter-chip" type="button" data-severity="moderate">Monitor</button>
+            <button class="filter-chip" type="button" data-severity="informational">Info</button>
+            <button class="filter-chip" type="button" data-severity="none">No listed</button>
           </div>
 
           <div class="result" id="resultPanel" aria-live="polite">
@@ -53,11 +62,35 @@
           <div class="section-heading">
             <div>
               <h2 id="intelligenceTitle">AI risk intelligence</h2>
-              <p>Run an interaction check to generate graph, food, and mechanism insights.</p>
+              <p>Run an interaction check to generate graph, patient-context, food, and mechanism insights.</p>
             </div>
             <span class="ai-badge">Local AI</span>
           </div>
+          <div class="patient-context glass-lite">
+            <div>
+              <h3>Patient context</h3>
+              <p>Optional clinical context for explainable risk scoring.</p>
+            </div>
+            <div class="context-chips" id="patientContexts" aria-label="Patient context options">
+              <button class="context-chip" type="button" data-context="older_adult">Older adult</button>
+              <button class="context-chip" type="button" data-context="pregnancy">Pregnancy</button>
+              <button class="context-chip" type="button" data-context="kidney">Kidney disease</button>
+              <button class="context-chip" type="button" data-context="liver">Liver disease</button>
+              <button class="context-chip" type="button" data-context="bleeding">Bleeding risk</button>
+              <button class="context-chip" type="button" data-context="diabetes">Diabetes</button>
+              <button class="context-chip" type="button" data-context="hypertension">Hypertension</button>
+              <button class="context-chip" type="button" data-context="alcohol">Alcohol use</button>
+            </div>
+          </div>
           <div class="intelligence-grid">
+            <article class="insight-card patient-risk-card">
+              <h3>Patient risk score</h3>
+              <div id="patientRisk" class="insight-empty">Select context chips, then run an interaction check.</div>
+            </article>
+            <article class="insight-card explain-card">
+              <h3>Explainable AI</h3>
+              <div id="explainableAi" class="insight-empty">Evidence trace will appear here after scoring.</div>
+            </article>
             <article class="insight-card ai-card">
               <h3>AI summary</h3>
               <div id="aiSummary" class="insight-empty">No analysis yet.</div>
@@ -73,6 +106,10 @@
             <article class="insight-card">
               <h3>Shared biology</h3>
               <div id="sharedSignals" class="insight-empty">No shared target, enzyme, or category signals yet.</div>
+            </article>
+            <article class="insight-card">
+              <h3>Alternative suggestions</h3>
+              <div id="alternativeDrugs" class="insight-empty">Select a drug to see related alternatives.</div>
             </article>
           </div>
         </section>

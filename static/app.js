@@ -5,6 +5,11 @@ const state = {
   nextRowId: 1,
   textStore: {},
   nextTextId: 1,
+  severityFilter: "all",
+  lastCheckData: null,
+  lastInsights: null,
+  patientContexts: new Set(),
+  lastPatientRisk: null,
 };
 
 const els = {
@@ -14,12 +19,18 @@ const els = {
   drugRows: document.querySelector("#drugRows"),
   addDrugButton: document.querySelector("#addDrugButton"),
   checkButton: document.querySelector("#checkButton"),
+  exportReportButton: document.querySelector("#exportReportButton"),
   selectionHint: document.querySelector("#selectionHint"),
+  severityFilter: document.querySelector("#severityFilter"),
   resultPanel: document.querySelector("#resultPanel"),
   aiSummary: document.querySelector("#aiSummary"),
   interactionGraph: document.querySelector("#interactionGraph"),
   foodWarnings: document.querySelector("#foodWarnings"),
   sharedSignals: document.querySelector("#sharedSignals"),
+  alternativeDrugs: document.querySelector("#alternativeDrugs"),
+  patientContexts: document.querySelector("#patientContexts"),
+  patientRisk: document.querySelector("#patientRisk"),
+  explainableAi: document.querySelector("#explainableAi"),
   detailsGrid: document.querySelector("#detailsGrid"),
   browseTabs: document.querySelector("#browseTabs"),
   browseFilter: document.querySelector("#browseFilter"),
@@ -158,6 +169,7 @@ function removeDrugRow(rowId) {
   renderDetails();
   renderBrowseTabs();
   loadInteractionList();
+  loadAlternativeSuggestions();
 }
 
 function renderDrugRows() {
@@ -307,6 +319,7 @@ async function selectDrug(rowId, id, name) {
   renderDetails();
   renderBrowseTabs();
   await loadInteractionList();
+  loadAlternativeSuggestions();
 }
 
 function clearDrug(rowId) {
@@ -324,6 +337,7 @@ function clearDrug(rowId) {
   renderDetails();
   renderBrowseTabs();
   loadInteractionList();
+  loadAlternativeSuggestions();
 }
 
 function updateSelectedState(message = "") {
@@ -338,7 +352,10 @@ function updateSelectedState(message = "") {
   } else {
     els.selectionHint.textContent = "Select at least two drugs.";
   }
-  if (count < 2) resetInsights();
+  if (count < 2) {
+    state.lastCheckData = null;
+    resetInsights();
+  }
 }
 
 async function loadDrugDetail(rowId) {
@@ -362,31 +379,45 @@ async function checkInteractions() {
     els.resultPanel.innerHTML = `<p class="error">${escapeHtml(data.error)}</p>`;
     return;
   }
+  state.lastCheckData = data;
   renderMultiResults(data);
   await loadAiInsights(ids);
 }
 
 function renderMultiResults(data) {
-  const found = data.pairs.filter((pair) => pair.found);
-  const notFound = data.pairs.filter((pair) => !pair.found);
+  const currentFilter = state.severityFilter;
+  const visiblePairs = data.pairs.filter((pair) => {
+    if (currentFilter === "all") return true;
+    if (currentFilter === "none") return !pair.found;
+    return pair.found && pair.interaction?.severity === currentFilter;
+  });
+  const found = visiblePairs.filter((pair) => pair.found);
+  const notFound = visiblePairs.filter((pair) => !pair.found);
+  const filterLabel = currentFilter === "all" ? "All results" : els.severityFilter.querySelector(`[data-severity="${currentFilter}"]`)?.textContent || "Filtered";
 
   els.resultPanel.innerHTML = `
     <div class="summary-strip">
       <span><strong>${data.summary.selected}</strong> drugs</span>
       <span><strong>${data.summary.checked}</strong> pairs checked</span>
       <span><strong>${data.summary.found}</strong> interactions found</span>
+      <span><strong>${visiblePairs.length}</strong> shown · ${escapeHtml(filterLabel)}</span>
     </div>
     <div class="result-stack">
       ${
         found.length
           ? found.map(renderPairResult).join("")
-          : `<article class="result-card"><h3>No listed interactions found</h3><p class="muted">No matching pair rows were found in your local DrugBank database. This is not a clinical safety guarantee.</p></article>`
+          : ""
       }
       ${
         notFound.length
           ? `<details class="quiet-details"><summary>${notFound.length} pairs without a listed interaction</summary>${notFound
               .map((pair) => `<p>${escapeHtml(pair.drug1.name)} with ${escapeHtml(pair.drug2.name)}</p>`)
               .join("")}</details>`
+          : ""
+      }
+      ${
+        !visiblePairs.length || (!found.length && !notFound.length)
+          ? `<article class="result-card"><h3>No matching rows for this filter</h3><p class="muted">Try another severity filter or select a different drug set.</p></article>`
           : ""
       }
     </div>
@@ -409,10 +440,16 @@ function renderPairResult(pair) {
 }
 
 function resetInsights() {
+  state.lastInsights = null;
+  state.lastPatientRisk = null;
   els.aiSummary.innerHTML = "No analysis yet.";
   els.interactionGraph.innerHTML = "No graph yet.";
   els.foodWarnings.innerHTML = "No selected-drug food warnings yet.";
   els.sharedSignals.innerHTML = "No shared target, enzyme, or category signals yet.";
+  els.patientRisk.innerHTML = state.patientContexts.size
+    ? "Run an interaction check to score the selected contexts."
+    : "Select context chips, then run an interaction check.";
+  els.explainableAi.innerHTML = "Evidence trace will appear here after scoring.";
 }
 
 async function loadAiInsights(ids) {
@@ -420,16 +457,96 @@ async function loadAiInsights(ids) {
   els.interactionGraph.innerHTML = `<p class="muted">Building graph...</p>`;
   els.foodWarnings.innerHTML = `<p class="muted">Checking food interactions...</p>`;
   els.sharedSignals.innerHTML = `<p class="muted">Scanning mechanisms...</p>`;
+  loadPatientRisk(ids);
 
   const data = await api(`/api/ai-insights?ids=${encodeURIComponent(ids)}`);
   if (data.error) {
     els.aiSummary.innerHTML = `<p class="error">${escapeHtml(data.error)}</p>`;
     return;
   }
+  state.lastInsights = data;
   renderAiSummary(data);
   renderInteractionGraph(data);
   renderFoodWarnings(data.foodWarnings);
   renderSharedSignals(data.shared);
+}
+
+async function loadPatientRisk(ids) {
+  if (!state.patientContexts.size) {
+    state.lastPatientRisk = null;
+    els.patientRisk.innerHTML = `<p class="muted">No patient context selected. Choose one or more chips above to personalize the score.</p>`;
+    els.explainableAi.innerHTML = `<p class="muted">The evidence trace appears when patient context scoring is active.</p>`;
+    return;
+  }
+
+  const contexts = [...state.patientContexts].join(",");
+  els.patientRisk.innerHTML = `<p class="muted">Scoring patient context...</p>`;
+  els.explainableAi.innerHTML = `<p class="muted">Tracing matched DrugBank evidence...</p>`;
+  const data = await api(`/api/patient-risk?ids=${encodeURIComponent(ids)}&contexts=${encodeURIComponent(contexts)}`);
+  if (data.error) {
+    els.patientRisk.innerHTML = `<p class="error">${escapeHtml(data.error)}</p>`;
+    return;
+  }
+  state.lastPatientRisk = data;
+  renderPatientRisk(data);
+  renderExplainableAi(data);
+}
+
+function renderPatientRisk(data) {
+  const topContexts = (data.contexts || []).slice(0, 4);
+  const level = data.overall.level || "none";
+  els.patientRisk.innerHTML = `
+    <div class="risk-score ${level}">
+      <div>
+        <span>${escapeHtml(data.overall.label)}</span>
+        <strong>${data.overall.score}</strong>
+      </div>
+      <p>${escapeHtml(data.mode)}</p>
+    </div>
+    <div class="context-score-list">
+      ${topContexts
+        .map((context) => `
+          <article class="context-score-row ${context.level}">
+            <div>
+              <strong>${escapeHtml(context.label)}</strong>
+              <span>${escapeHtml(context.signalCount)} evidence signal${context.signalCount === 1 ? "" : "s"}</span>
+            </div>
+            <b>${context.score}</b>
+          </article>
+        `)
+        .join("")}
+    </div>
+    ${
+      topContexts.length
+        ? `<div class="monitor-note">${bulletList(topContexts.map((context) => `${context.label}: ${context.monitor}`))}</div>`
+        : `<p class="muted">No matching patient-context signals were detected in the selected records.</p>`
+    }
+  `;
+}
+
+function renderExplainableAi(data) {
+  const topSignals = (data.contexts || []).flatMap((context) =>
+    (context.signals || []).slice(0, 3).map((signal) => ({ ...signal, context: context.label })),
+  ).slice(0, 8);
+
+  els.explainableAi.innerHTML = `
+    <p class="ai-mode">${escapeHtml(data.mode)}</p>
+    ${bulletList(data.explanation || [])}
+    <div class="evidence-list">
+      ${topSignals
+        .map((signal) => `
+          <article class="evidence-row">
+            <div class="evidence-head">
+              <strong>${escapeHtml(signal.context)} · ${escapeHtml(signal.drugName)}</strong>
+              <span>${escapeHtml(signal.source)} · +${escapeHtml(signal.points)} pts</span>
+            </div>
+            <p>${escapeHtml(signal.excerpt)}</p>
+            <small>Matched: ${escapeHtml(signal.matched.join(", "))}</small>
+          </article>
+        `)
+        .join("") || `<p class="muted">No evidence snippets matched the selected contexts.</p>`}
+    </div>
+  `;
 }
 
 function renderAiSummary(data) {
@@ -559,6 +676,43 @@ function renderSharedSignals(shared) {
   els.sharedSignals.innerHTML = html || `<p class="muted">No shared structured signals were detected.</p>`;
 }
 
+async function loadAlternativeSuggestions() {
+  const selected = selectedRows();
+  if (!selected.length) {
+    els.alternativeDrugs.innerHTML = "Select a drug to see related alternatives.";
+    return;
+  }
+
+  const source = selected.find((row) => row.drug.id === state.activeBrowseId) || selected[0];
+  els.alternativeDrugs.innerHTML = `<p class="muted">Finding related drugs for ${escapeHtml(source.drug.name)}...</p>`;
+  const data = await api(`/api/similar?drug=${encodeURIComponent(source.drug.id)}`);
+  if (data.error) {
+    els.alternativeDrugs.innerHTML = `<p class="error">${escapeHtml(data.error)}</p>`;
+    return;
+  }
+  if (!data.results.length) {
+    els.alternativeDrugs.innerHTML = `<p class="muted">No close structured alternatives were found for ${escapeHtml(data.source.name)}.</p>`;
+    return;
+  }
+
+  els.alternativeDrugs.innerHTML = `
+    <p class="muted">Similar structured profile to ${escapeHtml(data.source.name)}. Review clinically before substitution.</p>
+    <div class="alternative-list">
+      ${data.results
+        .map((drug) => `
+          <article class="alternative-row">
+            <div>
+              <strong>${escapeHtml(drug.name)}</strong>
+              <span>${escapeHtml(drug.signals.slice(0, 2).join(" · ") || "Shared database signals")}</span>
+            </div>
+            <button class="mini-button" type="button" data-action="profile" data-drug-id="${escapeHtml(drug.id)}">Profile</button>
+          </article>
+        `)
+        .join("")}
+    </div>
+  `;
+}
+
 function renderDetails() {
   const selected = selectedRows();
   state.textStore = {};
@@ -590,7 +744,10 @@ function renderDrugDetail(data) {
         <h3>${escapeHtml(drug.name)}</h3>
         <p class="muted">${escapeHtml(drug.id)}</p>
       </div>
-      <span class="pill">${fmt.format(data.interactionCount)} interactions</span>
+      <div class="detail-actions">
+        <span class="pill">${fmt.format(data.interactionCount)} interactions</span>
+        <button class="mini-button" type="button" data-action="profile" data-drug-id="${escapeHtml(drug.id)}">Profile</button>
+      </div>
     </div>
     <div class="meta-grid">
       <div class="meta-item"><span>Half-life</span>${expandableText(`${drug.name} half-life`, drug.half_life || "Not listed", 210, 3)}</div>
@@ -626,6 +783,7 @@ function renderBrowseTabs() {
       state.activeBrowseId = button.dataset.drugId;
       renderBrowseTabs();
       loadInteractionList();
+      loadAlternativeSuggestions();
     });
   });
 }
@@ -658,6 +816,141 @@ async function loadInteractionList() {
     .join("");
 }
 
+function valueList(items, mapper = (item) => item) {
+  const clean = items.map(mapper).filter(Boolean);
+  return clean.length ? bulletList(clean.slice(0, 10)) : `<p class="muted">Not listed.</p>`;
+}
+
+async function openDrugProfile(drugId) {
+  const data = await api(`/api/drugs/${encodeURIComponent(drugId)}`);
+  if (data.error) return;
+  document.querySelector(".profile-modal")?.remove();
+  const drug = data.drug;
+  const modal = document.createElement("div");
+  modal.className = "profile-modal";
+  modal.innerHTML = `
+    <div class="reader-backdrop" data-action="close-profile"></div>
+    <section class="profile-panel glass" role="dialog" aria-modal="true" aria-label="${escapeHtml(drug.name)} profile">
+      <div class="reader-head">
+        <div>
+          <p class="eyebrow">Drug profile</p>
+          <h2>${escapeHtml(drug.name)}</h2>
+          <p class="muted">${escapeHtml(drug.id)} · ${fmt.format(data.interactionCount)} interactions</p>
+        </div>
+        <button class="icon-button" type="button" data-action="close-profile" aria-label="Close profile">×</button>
+      </div>
+      <div class="profile-grid">
+        <article class="profile-section wide">
+          <h3>Description</h3>
+          ${expandableText(`${drug.name} description`, drug.description || "Not listed.", 520, 4)}
+        </article>
+        <article class="profile-section">
+          <h3>Food warnings</h3>
+          ${valueList(data.foodInteractions)}
+        </article>
+        <article class="profile-section">
+          <h3>Targets</h3>
+          ${valueList(data.targets || [], (item) => [item.name, item.action, item.organism].filter(Boolean).join(" · "))}
+        </article>
+        <article class="profile-section">
+          <h3>Enzymes</h3>
+          ${valueList(data.enzymes || [], (item) => [item.name, item.organism].filter(Boolean).join(" · "))}
+        </article>
+        <article class="profile-section">
+          <h3>Dosages</h3>
+          ${valueList(data.dosages || [], (item) => [item.strength, item.form, item.route].filter(Boolean).join(" · "))}
+        </article>
+        <article class="profile-section">
+          <h3>Products</h3>
+          ${valueList(data.products || [], (item) => [item.name, item.form, item.route].filter(Boolean).join(" · "))}
+        </article>
+        <article class="profile-section">
+          <h3>Transport</h3>
+          ${valueList([...(data.carriers || []), ...(data.transporters || [])])}
+        </article>
+        <article class="profile-section">
+          <h3>Categories</h3>
+          <div class="tags">${(data.categories || []).slice(0, 12).map((category) => `<span class="pill">${escapeHtml(category)}</span>`).join("") || "<p class=\"muted\">Not listed.</p>"}</div>
+        </article>
+      </div>
+    </section>
+  `;
+  document.body.appendChild(modal);
+}
+
+function exportReport() {
+  if (!state.lastCheckData) {
+    els.selectionHint.textContent = "Run an interaction check before exporting.";
+    return;
+  }
+
+  const checkedAt = new Date().toLocaleString();
+  const drugs = state.lastCheckData.drugs || [];
+  const found = state.lastCheckData.pairs.filter((pair) => pair.found);
+  const missing = state.lastCheckData.pairs.filter((pair) => !pair.found);
+  const insightItems = state.lastInsights?.summary || [];
+  const patientItems = state.lastPatientRisk
+    ? [
+        `Patient context score: ${state.lastPatientRisk.overall.score}/100 (${state.lastPatientRisk.overall.label}).`,
+        ...(state.lastPatientRisk.contexts || []).slice(0, 3).map((context) => `${context.label}: ${context.score}/100 from ${context.signalCount} evidence signal(s).`),
+      ]
+    : [];
+  const reportHtml = `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>NeuroPharmDB Interaction Report</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 40px; color: #111; line-height: 1.45; }
+          h1 { margin-bottom: 4px; }
+          h2 { margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 8px; }
+          .pill { display: inline-block; border: 1px solid #ccc; border-radius: 999px; padding: 4px 9px; margin: 3px; color: #444; }
+          .card { border: 1px solid #ddd; border-radius: 12px; padding: 14px; margin: 10px 0; break-inside: avoid; }
+          .high { color: #b00020; } .moderate { color: #9a5a00; } .informational { color: #187a3b; }
+          @media print { body { margin: 22mm; } button { display: none; } }
+        </style>
+      </head>
+      <body>
+        <button onclick="window.print()">Print or save PDF</button>
+        <h1>NeuroPharmDB Interaction Report</h1>
+        <p>Generated ${escapeHtml(checkedAt)} from the local DrugBank database.</p>
+        <h2>Selected Drugs</h2>
+        <p>${drugs.map((drug) => `<span class="pill">${escapeHtml(drug.name)} (${escapeHtml(drug.id)})</span>`).join("")}</p>
+        <h2>Summary</h2>
+        ${bulletList([
+          `${state.lastCheckData.summary.checked} pairs checked.`,
+          `${state.lastCheckData.summary.found} listed interactions found.`,
+          `${missing.length} pairs had no listed interaction row.`,
+          ...patientItems,
+          ...insightItems,
+        ])}
+        <h2>Listed Interactions</h2>
+        ${
+          found.length
+            ? found.map((pair) => `
+              <div class="card">
+                <strong>${escapeHtml(pair.drug1.name)} + ${escapeHtml(pair.drug2.name)}</strong>
+                <p class="${escapeHtml(pair.interaction.severity)}">${escapeHtml(pair.interaction.label)}</p>
+                <p>${escapeHtml(pair.interaction.description)}</p>
+              </div>
+            `).join("")
+            : "<p>No listed interactions found.</p>"
+        }
+      </body>
+    </html>
+  `;
+
+  const report = window.open("", "_blank");
+  if (!report) {
+    els.selectionHint.textContent = "Allow pop-ups to open the report.";
+    return;
+  }
+  report.document.open();
+  report.document.write(reportHtml);
+  report.document.close();
+}
+
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem("neuropharm-theme", theme);
@@ -676,14 +969,24 @@ document.addEventListener("click", (event) => {
     showReaderModal(item);
   }
 
+  const profileButton = event.target.closest('[data-action="profile"]');
+  if (profileButton) {
+    openDrugProfile(profileButton.dataset.drugId);
+  }
+
   if (event.target.closest('[data-action="close-reader"]')) {
     document.querySelector(".reader-modal")?.remove();
+  }
+
+  if (event.target.closest('[data-action="close-profile"]')) {
+    document.querySelector(".profile-modal")?.remove();
   }
 });
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     document.querySelector(".reader-modal")?.remove();
+    document.querySelector(".profile-modal")?.remove();
   }
 });
 
@@ -693,6 +996,38 @@ els.addDrugButton.addEventListener("click", () => {
 });
 
 els.checkButton.addEventListener("click", checkInteractions);
+els.exportReportButton.addEventListener("click", exportReport);
+
+els.severityFilter.querySelectorAll(".filter-chip").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.severityFilter = button.dataset.severity;
+    els.severityFilter.querySelectorAll(".filter-chip").forEach((item) => item.classList.toggle("active", item === button));
+    if (state.lastCheckData) renderMultiResults(state.lastCheckData);
+  });
+});
+
+els.patientContexts.querySelectorAll(".context-chip").forEach((button) => {
+  button.addEventListener("click", () => {
+    const context = button.dataset.context;
+    if (state.patientContexts.has(context)) {
+      state.patientContexts.delete(context);
+      button.classList.remove("active");
+    } else {
+      state.patientContexts.add(context);
+      button.classList.add("active");
+    }
+
+    if (state.lastCheckData) {
+      const ids = selectedRows().map((row) => row.drug.id).join(",");
+      loadPatientRisk(ids);
+    } else {
+      els.patientRisk.innerHTML = state.patientContexts.size
+        ? "Run an interaction check to score the selected contexts."
+        : "Select context chips, then run an interaction check.";
+      els.explainableAi.innerHTML = "Evidence trace will appear here after scoring.";
+    }
+  });
+});
 
 els.browseFilter.addEventListener("input", () => {
   window.clearTimeout(state.searchTimers.browse);

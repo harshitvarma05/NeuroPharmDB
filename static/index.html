@@ -8,81 +8,58 @@
   </head>
   <body>
     <div class="shell">
-      <header class="topbar">
+      <header class="topbar glass">
         <div>
           <p class="eyebrow">DrugBank interaction database</p>
           <h1>NeuroPharmDB</h1>
         </div>
-        <div class="stats" aria-label="Database stats">
-          <span><strong id="drugCount">--</strong> drugs</span>
-          <span><strong id="interactionCount">--</strong> interactions</span>
+        <div class="top-actions">
+          <div class="stats" aria-label="Database stats">
+            <span><strong id="drugCount">--</strong> drugs</span>
+            <span><strong id="interactionCount">--</strong> interactions</span>
+          </div>
+          <button class="icon-button" id="themeToggle" type="button" title="Toggle dark mode" aria-label="Toggle dark mode">
+            <span class="theme-icon">☾</span>
+          </button>
         </div>
       </header>
 
       <main>
-        <section class="checker" aria-labelledby="checkerTitle">
+        <section class="checker glass" aria-labelledby="checkerTitle">
           <div class="section-heading">
             <div>
               <h2 id="checkerTitle">Interaction checker</h2>
-              <p>Select two medicines to see whether DrugBank lists an interaction.</p>
+              <p>Add two or more medicines to check every interaction pair.</p>
             </div>
-            <button class="ghost-button" id="swapButton" type="button" title="Swap selected drugs">Swap</button>
+            <button class="ghost-button" id="addDrugButton" type="button">+ Add drug</button>
           </div>
 
-          <div class="selectors">
-            <div class="drug-picker" data-picker="a">
-              <label for="drugA">Drug A</label>
-              <div class="input-wrap">
-                <input id="drugA" type="search" autocomplete="off" placeholder="Search by name or synonym">
-                <button type="button" class="clear-button" data-clear="a" title="Clear drug A">×</button>
-              </div>
-              <div class="suggestions" id="suggestionsA" role="listbox"></div>
-            </div>
-
-            <div class="drug-picker" data-picker="b">
-              <label for="drugB">Drug B</label>
-              <div class="input-wrap">
-                <input id="drugB" type="search" autocomplete="off" placeholder="Search by name or synonym">
-                <button type="button" class="clear-button" data-clear="b" title="Clear drug B">×</button>
-              </div>
-              <div class="suggestions" id="suggestionsB" role="listbox"></div>
-            </div>
-          </div>
+          <div class="drug-list" id="drugRows"></div>
 
           <div class="actions">
-            <button class="primary-button" id="checkButton" type="button">Check interaction</button>
-            <p id="selectionHint">Start typing at least two letters.</p>
+            <button class="primary-button" id="checkButton" type="button">Check interactions</button>
+            <p id="selectionHint">Select at least two drugs.</p>
           </div>
 
           <div class="result" id="resultPanel" aria-live="polite">
             <div class="empty-state">
               <span class="status-dot"></span>
-              <p>Your interaction result will appear here.</p>
+              <p>Your interaction results will appear here.</p>
             </div>
           </div>
         </section>
 
-        <section class="details-grid" aria-label="Drug details">
-          <article class="panel" id="detailA">
-            <p class="muted">Drug A details</p>
-          </article>
-          <article class="panel" id="detailB">
-            <p class="muted">Drug B details</p>
-          </article>
-        </section>
+        <section class="details-grid" id="detailsGrid" aria-label="Selected drug details"></section>
 
-        <section class="browse" aria-labelledby="browseTitle">
+        <section class="browse glass" aria-labelledby="browseTitle">
           <div class="section-heading">
             <div>
               <h2 id="browseTitle">Browse interactions</h2>
-              <p>Choose a drug above, then filter the first 50 listed interactions.</p>
+              <p>Select a drug from your list, then filter its interaction table.</p>
             </div>
             <input id="browseFilter" type="search" placeholder="Filter interaction list">
           </div>
-          <div class="browse-tabs" role="tablist">
-            <button class="tab active" data-tab="a" type="button">Drug A</button>
-            <button class="tab" data-tab="b" type="button">Drug B</button>
-          </div>
+          <div class="browse-tabs" id="browseTabs" role="tablist"></div>
           <div id="interactionList" class="interaction-list">
             <p class="muted">No drug selected yet.</p>
           </div>

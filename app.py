@@ -4,6 +4,7 @@ import html
 import json
 import mimetypes
 import os
+import re
 import sqlite3
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -21,10 +22,36 @@ def get_db() -> sqlite3.Connection:
     return conn
 
 
-def compact(text: str | None, limit: int = 500) -> str:
+def clean_text(text: str | None) -> str:
     if not text:
         return ""
-    cleaned = " ".join(str(text).split())
+
+    cleaned = html.unescape(str(text))
+    cleaned = re.sub(r"<\s*br\s*/?\s*>", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"<\s*(sub|sup)\s*>(.*?)<\s*/\s*\1\s*>", r"\2", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"</?\s*(sub|sup)\s*>?", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"<[^>]+>", "", cleaned)
+    cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned)
+    cleaned = re.sub(r"_(.*?)_", r"\1", cleaned)
+    cleaned = re.sub(r"\s+\*\s+", " ", cleaned)
+
+    def clean_reference(match: re.Match[str]) -> str:
+        inner = match.group(1).strip()
+        citation = r"(?:label|fda label|[A-Z]\d+|DB\d+)"
+        if re.fullmatch(fr"{citation}(?:\s*,\s*{citation})*", inner, flags=re.IGNORECASE):
+            return ""
+        return inner
+
+    cleaned = re.sub(r"\[([^\[\]]+)\]", clean_reference, cleaned)
+    cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip()
+
+
+def compact(text: str | None, limit: int = 500) -> str:
+    cleaned = clean_text(text)
+    if not cleaned:
+        return ""
     return cleaned if len(cleaned) <= limit else cleaned[: limit - 1].rstrip() + "..."
 
 
@@ -46,12 +73,12 @@ def row_to_drug(row: sqlite3.Row | None) -> dict | None:
     return {
         "id": row["drugbank_id"],
         "name": row["name"] or row["drugbank_id"],
-        "description": compact(row["description"], 900),
-        "indication": compact(row["indication"], 900),
-        "mechanism": compact(row["mechanism_of_action"], 900),
-        "toxicity": compact(row["toxicity"], 900),
-        "metabolism": compact(row["metabolism"], 700),
-        "half_life": compact(row["half_life"], 400),
+        "description": compact(row["description"], 2200),
+        "indication": compact(row["indication"], 2600),
+        "mechanism": compact(row["mechanism_of_action"], 2600),
+        "toxicity": compact(row["toxicity"], 1800),
+        "metabolism": compact(row["metabolism"], 1800),
+        "half_life": compact(row["half_life"], 900),
     }
 
 
@@ -72,6 +99,9 @@ class NeuroPharmHandler(BaseHTTPRequestHandler):
             elif path == "/api/search":
                 params = parse_qs(parsed.query)
                 self.send_json(self.search(params.get("q", [""])[0]))
+            elif path == "/api/options":
+                params = parse_qs(parsed.query)
+                self.send_json(self.options(params.get("q", [""])[0]))
             elif path == "/api/check":
                 params = parse_qs(parsed.query)
                 self.send_json(
@@ -80,6 +110,9 @@ class NeuroPharmHandler(BaseHTTPRequestHandler):
                         params.get("drug2", [""])[0],
                     )
                 )
+            elif path == "/api/check-many":
+                params = parse_qs(parsed.query)
+                self.send_json(self.check_many(params.get("ids", [""])[0]))
             elif path.startswith("/api/drugs/") and path.endswith("/interactions"):
                 drug_id = path.removeprefix("/api/drugs/").removesuffix("/interactions").strip("/")
                 params = parse_qs(parsed.query)
@@ -161,7 +194,7 @@ class NeuroPharmHandler(BaseHTTPRequestHandler):
                 FROM matched
                 GROUP BY drugbank_id, name
                 ORDER BY rank, LENGTH(name), name
-                LIMIT 18
+                LIMIT 60
                 """,
                 (prefix, contains, contains),
             ).fetchall()
@@ -175,6 +208,141 @@ class NeuroPharmHandler(BaseHTTPRequestHandler):
                 }
                 for row in rows
             ]
+        }
+
+    def options(self, query: str) -> dict:
+        q = " ".join(query.strip().split())
+        if q:
+            return self.search(q)
+
+        preferred = [
+            "Acetylsalicylic acid",
+            "Warfarin",
+            "Apixaban",
+            "Metformin",
+            "Atorvastatin",
+            "Ibuprofen",
+            "Acetaminophen",
+            "Amoxicillin",
+            "Omeprazole",
+            "Clopidogrel",
+            "Simvastatin",
+            "Lisinopril",
+            "Amlodipine",
+            "Prednisone",
+            "Fluoxetine",
+            "Sertraline",
+            "Ciprofloxacin",
+            "Levothyroxine",
+        ]
+
+        with get_db() as db:
+            preferred_rows = db.execute(
+                """
+                SELECT drugbank_id, name, NULL AS matched_synonym
+                FROM drugs
+                WHERE name IN ({})
+                """.format(",".join("?" for _ in preferred)),
+                preferred,
+            ).fetchall()
+            preferred_by_name = {row["name"]: row for row in preferred_rows}
+            rows = [preferred_by_name[name] for name in preferred if name in preferred_by_name]
+
+            alphabetic_rows = db.execute(
+                """
+                SELECT drugbank_id, name, NULL AS matched_synonym
+                FROM drugs
+                WHERE name IS NOT NULL
+                  AND TRIM(name) != ''
+                  AND name NOT IN ({})
+                ORDER BY name COLLATE NOCASE
+                LIMIT 102
+                """.format(",".join("?" for _ in preferred)),
+                preferred,
+            ).fetchall()
+            rows.extend(alphabetic_rows)
+
+        return {
+            "results": [
+                {
+                    "id": row["drugbank_id"],
+                    "name": row["name"] or row["drugbank_id"],
+                    "synonym": row["matched_synonym"],
+                }
+                for row in rows
+            ]
+        }
+
+    def check_many(self, raw_ids: str) -> dict:
+        ids: list[str] = []
+        for drug_id in raw_ids.split(","):
+            clean_id = drug_id.strip()
+            if clean_id and clean_id not in ids:
+                ids.append(clean_id)
+
+        if len(ids) < 2:
+            return {"error": "Select at least two drugs to check."}
+        if len(ids) > 12:
+            return {"error": "Please check 12 drugs or fewer at a time."}
+
+        placeholders = ",".join("?" for _ in ids)
+        with get_db() as db:
+            drug_rows = db.execute(
+                f"""
+                SELECT * FROM drugs
+                WHERE drugbank_id IN ({placeholders})
+                """,
+                ids,
+            ).fetchall()
+            drugs_by_id = {row["drugbank_id"]: row for row in drug_rows}
+
+            missing = [drug_id for drug_id in ids if drug_id not in drugs_by_id]
+            if missing:
+                return {"error": f"Could not find: {', '.join(missing)}"}
+
+            interaction_rows = db.execute(
+                f"""
+                SELECT drug1_id, drug2_id, description
+                FROM drug_interactions
+                WHERE drug1_id IN ({placeholders})
+                  AND drug2_id IN ({placeholders})
+                """,
+                [*ids, *ids],
+            ).fetchall()
+
+        interactions: dict[frozenset[str], sqlite3.Row] = {}
+        for row in interaction_rows:
+            key = frozenset((row["drug1_id"], row["drug2_id"]))
+            interactions.setdefault(key, row)
+
+        pairs = []
+        for index, drug1_id in enumerate(ids):
+            for drug2_id in ids[index + 1 :]:
+                row = interactions.get(frozenset((drug1_id, drug2_id)))
+                drug1 = row_to_drug(drugs_by_id[drug1_id])
+                drug2 = row_to_drug(drugs_by_id[drug2_id])
+                item = {
+                    "drug1": drug1,
+                    "drug2": drug2,
+                    "found": row is not None,
+                }
+                if row is not None:
+                    level, label = severity_for(row["description"])
+                    item["interaction"] = {
+                        "description": clean_text(row["description"]),
+                        "severity": level,
+                        "label": label,
+                    }
+                pairs.append(item)
+
+        return {
+            "drugs": [row_to_drug(drugs_by_id[drug_id]) for drug_id in ids],
+            "pairs": pairs,
+            "summary": {
+                "selected": len(ids),
+                "checked": len(pairs),
+                "found": sum(1 for pair in pairs if pair["found"]),
+            },
         }
 
     def check_pair(self, drug1: str, drug2: str) -> dict:
@@ -207,7 +375,7 @@ class NeuroPharmHandler(BaseHTTPRequestHandler):
         if interaction is not None:
             level, label = severity_for(interaction["description"])
             result["interaction"] = {
-                "description": interaction["description"],
+                "description": clean_text(interaction["description"]),
                 "severity": level,
                 "label": label,
             }
@@ -265,19 +433,27 @@ class NeuroPharmHandler(BaseHTTPRequestHandler):
         with get_db() as db:
             rows = db.execute(
                 f"""
+                WITH paired AS (
+                    SELECT drug2_id AS other_id, description
+                    FROM drug_interactions
+                    WHERE drug1_id = ?
+                    UNION
+                    SELECT drug1_id AS other_id, description
+                    FROM drug_interactions
+                    WHERE drug2_id = ?
+                )
                 SELECT DISTINCT
                     other.drugbank_id AS id,
                     other.name AS name,
-                    di.description AS description
-                FROM drug_interactions di
-                JOIN drugs other ON other.drugbank_id =
-                    CASE WHEN di.drug1_id = ? THEN di.drug2_id ELSE di.drug1_id END
-                WHERE (di.drug1_id = ? OR di.drug2_id = ?)
+                    paired.description AS description
+                FROM paired
+                JOIN drugs other ON other.drugbank_id = paired.other_id
+                WHERE 1 = 1
                 {name_filter}
                 ORDER BY other.name
                 LIMIT 50
                 """,
-                [drug_id, *values],
+                values,
             ).fetchall()
 
         return {
@@ -285,7 +461,7 @@ class NeuroPharmHandler(BaseHTTPRequestHandler):
                 {
                     "id": row["id"],
                     "name": row["name"],
-                    "description": row["description"],
+                    "description": clean_text(row["description"]),
                     "severity": severity_for(row["description"])[0],
                     "label": severity_for(row["description"])[1],
                 }
